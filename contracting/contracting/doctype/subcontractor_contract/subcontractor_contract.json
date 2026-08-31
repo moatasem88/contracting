@@ -1,0 +1,392 @@
+{
+ "actions": [],
+ "allow_auto_repeat": 1,
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-02-18 16:05:23.004427",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "intro_info",
+  "section",
+  "contract_title",
+  "naming_series",
+  "project",
+  "tender_id",
+  "project_tenders",
+  "column_break0",
+  "contractor_name",
+  "department",
+  "type_subcontractor",
+  "contract_date",
+  "issue_date",
+  "amended_from",
+  "items",
+  "contracted_items",
+  "items_subcontracted",
+  "conflict_section",
+  "existing_material_requests",
+  "additional_costs_section",
+  "additional_costs",
+  "payment_conditions_section",
+  "payment_conditions",
+  "totals_section",
+  "net_total",
+  "total_additional_charges",
+  "column_break_totals",
+  "grand_total",
+  "requires_ceo_approval",
+  "attachment_section",
+  "attached_contract",
+  "workflow_state",
+  "material_tab",
+  "contract_material_items",
+  "labor_tab",
+  "contract_labor_items",
+  "equipment_tab",
+  "contract_equipment_items"
+ ],
+ "fields": [
+  {
+   "fieldname": "intro_info",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "section",
+   "fieldtype": "Column Break",
+   "print_width": "50%"
+  },
+  {
+   "fieldname": "contract_title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "options": "{contractor_name}"
+  },
+  {
+   "default": "Subcontractor-CONTRACT-.YYYY.-",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Contract Serial",
+   "no_copy": 1,
+   "options": "Subcontractor-CONTRACT-.YYYY.-",
+   "print_hide": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Project",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Deprecated - superseded by Project Tenders, which supports a project with more than one Tender. Retained so pre-existing contracts keep their data.",
+   "fieldname": "tender_id",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Tender (Deprecated)",
+   "options": "Tender",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Every Tender in scope for this contract's Project - work items on Contracted Items and the resource tabs may come from any of them. Derived automatically; not user-editable.",
+   "fieldname": "project_tenders",
+   "fieldtype": "Table",
+   "label": "Project Tenders",
+   "options": "Subcontractor Contract Tender",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break0",
+   "fieldtype": "Column Break",
+   "print_hide": 1,
+   "width": "50%"
+  },
+  {
+   "description": "Only suppliers flagged 'Is Subcontractor' are offered.",
+   "fieldname": "contractor_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Contractor Name",
+   "options": "Supplier",
+   "reqd": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Category",
+   "options": "\nCIVIL\nELEC\nMECH\nELEV"
+  },
+  {
+   "description": "Set once per contract. 'Supplying and installing' = Supply and Install, 'Installing' = Install Only.",
+   "fieldname": "type_subcontractor",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Contract Type",
+   "options": "Installing\nSupplying and installing\nEquipment",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contract_date",
+   "fieldtype": "Date",
+   "label": "Contract Date"
+  },
+  {
+   "fieldname": "issue_date",
+   "fieldtype": "Date",
+   "label": "Issue Date"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Subcontractor Contract",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Section Break",
+   "label": "Contracted Items"
+  },
+  {
+   "fieldname": "contracted_items",
+   "fieldtype": "Table",
+   "label": "Contracted Items",
+   "options": "Contractor Contract Item"
+  },
+  {
+   "description": "Deprecated - superseded by Contracted Items. Retained so pre-existing drafts keep their data.",
+   "fieldname": "items_subcontracted",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Items Subcontracted (Deprecated)",
+   "options": "Tender Item",
+   "print_hide": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:(doc.existing_material_requests || []).length > 0",
+   "fieldname": "conflict_section",
+   "fieldtype": "Section Break",
+   "label": "Material Conflicts"
+  },
+  {
+   "description": "Submitted Material Requests already drawing against the contracted work items - the company may already be procuring material this subcontractor is meant to supply. Each row's Work Item maps back to the Contracted Item it was found for.",
+   "fieldname": "existing_material_requests",
+   "fieldtype": "Table",
+   "label": "Existing Material Requests",
+   "no_copy": 1,
+   "options": "Contractor Contract Material Conflict",
+   "read_only": 1
+  },
+  {
+   "fieldname": "additional_costs_section",
+   "fieldtype": "Section Break",
+   "label": "Additional Costs"
+  },
+  {
+   "description": "Taxes, charges and retention agreed on this contract. Exactly one Retention row is required.",
+   "fieldname": "additional_costs",
+   "fieldtype": "Table",
+   "label": "Additional Costs",
+   "options": "Contractor Contract Charge"
+  },
+  {
+   "fieldname": "payment_conditions_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Conditions"
+  },
+  {
+   "description": "Optional milestone-based billing conditions (e.g. 30/40/30). Rows with no Work Item are the contract-wide default; rows naming a Work Item override the default for that line only. Frozen once the contract leaves Draft.",
+   "fieldname": "payment_conditions",
+   "fieldtype": "Table",
+   "label": "Payment Conditions",
+   "options": "Contractor Contract Payment Condition"
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "net_total",
+   "fieldtype": "Currency",
+   "label": "Net Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_additional_charges",
+   "fieldtype": "Currency",
+   "label": "Total Additional Charges",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "bold": 1,
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Grand Total",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Set automatically from Contracting Settings' CEO approval threshold. Drives the conditional CEO step in the approval workflow.",
+   "fieldname": "requires_ceo_approval",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Requires CEO Approval",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "attachment_section",
+   "fieldtype": "Section Break",
+   "label": "Signed Agreement"
+  },
+  {
+   "description": "The scanned/signed agreement. Not needed to save a draft; required to submit.",
+   "fieldname": "attached_contract",
+   "fieldtype": "Attach",
+   "label": "Attached Contract"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.type_subcontractor==\"Supplying and installing\"",
+   "fieldname": "material_tab",
+   "fieldtype": "Tab Break",
+   "label": "Material"
+  },
+  {
+   "description": "Material rows this Supply-and-Install contract supplies, drawn from the Tender's Material tab. Feeds both availability reconciliation and Material Conflict detection.",
+   "fieldname": "contract_material_items",
+   "fieldtype": "Table",
+   "label": "Material Items",
+   "options": "Contractor Contract Material Item"
+  },
+  {
+   "depends_on": "eval:[\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
+   "fieldname": "labor_tab",
+   "fieldtype": "Tab Break",
+   "label": "Labor"
+  },
+  {
+   "description": "Labor rows this Install Only contract carries, drawn from the Tender's Labor tab. A work item may carry more than one labor row.",
+   "fieldname": "contract_labor_items",
+   "fieldtype": "Table",
+   "label": "Labor Items",
+   "options": "Contractor Contract Labor Item"
+  },
+  {
+   "depends_on": "eval:[\"Equipment\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
+   "fieldname": "equipment_tab",
+   "fieldtype": "Tab Break",
+   "label": "Equipment"
+  },
+  {
+   "description": "Equipment rows this Equipment contract carries, drawn from the Tender's Equipment tab. A work item may carry more than one equipment row.",
+   "fieldname": "contract_equipment_items",
+   "fieldtype": "Table",
+   "label": "Equipment Items",
+   "options": "Contractor Contract Equipment Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "make_attachments_public": 1,
+ "modified": "2026-08-17 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Subcontractor Contract",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "tarek.elfar@friendsco.net",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Contracts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "cost control manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Company CEO",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "show_name_in_global_search": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

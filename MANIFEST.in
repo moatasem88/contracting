@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include contracting *.css
+recursive-include contracting *.csv
+recursive-include contracting *.html
+recursive-include contracting *.ico
+recursive-include contracting *.js
+recursive-include contracting *.json
+recursive-include contracting *.md
+recursive-include contracting *.png
+recursive-include contracting *.py
+recursive-include contracting *.svg
+recursive-include contracting *.txt
+recursive-exclude contracting *.pyc

@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-22 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "cost_component",
+  "calculation_type",
+  "rate",
+  "amount",
+  "percent_of_direct_cost",
+  "percent_of_total_price"
+ ],
+ "fields": [
+  {
+   "description": "Picker is restricted to the matching section (Indirect Cost, or Overhead & Profit / Deduction) depending on which table this row is in.",
+   "fieldname": "cost_component",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Cost Component",
+   "options": "Tender Cost Component",
+   "reqd": 1
+  },
+  {
+   "description": "Pre-filled from the Cost Component's default the moment this row is first configured (see Project Tender's resolve_row_defaults) - deliberately not a JSON fetch_from, since core's fetch_if_empty can't tell an explicit Rate of 0 apart from one that was never set.",
+   "fieldname": "calculation_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Calculation Type",
+   "options": "\nPercentage of Direct Cost\nPercentage of Total Price\nFixed Amount"
+  },
+  {
+   "depends_on": "eval:doc.calculation_type != \"Fixed Amount\"",
+   "fieldname": "rate",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Rate"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "fieldname": "percent_of_direct_cost",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "% of Direct Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "percent_of_total_price",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "% of Total Price",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Tender Cost Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,382 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "autoname": "naming_series:",
+    "creation": "2024-07-09 12:30:23.770100",
+    "default_view": "List",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+     "naming_series",
+     "contracting_item_group",
+     "unit",
+     "customer",
+     "start_date",
+     "end_date",
+     "expected_time_period",
+     "column_break_puvaq",
+     "item",
+     "project_qty",
+     "project",
+     "tender",
+     "row",
+     "section_break_gljdf",
+     "costing_note_template",
+     "section_break_6qymy",
+     "material_costs",
+     "total_material_costs",
+     "section_break_ueyhe",
+     "labor_costs",
+     "total_labor_costs",
+     "section_break_kmiex",
+     "contractors_table",
+     "total_contractors",
+     "section_break_ykrqk",
+     "expenses_table",
+     "total_expenses",
+     "section_break_kkppl",
+     "equibments",
+     "total_equibments_cost",
+     "section_break_pmbxu",
+     "costing_note_merge_items",
+     "section_break_viv6p",
+     "purchase_items",
+     "section_break_ivv2g",
+     "column_break_k49li",
+     "total_cost",
+     "section_break_lnkuo",
+     "indirect_based_on",
+     "indirect_cost_percentage",
+     "indirect_cost_amount",
+     "column_break_h7zen",
+     "cost_value",
+     "section_break_aqbhg",
+     "profit_based_on",
+     "profit_percentage",
+     "profit_amount",
+     "column_break_1u6hs",
+     "total_profit_amount",
+     "project_type_tab",
+     "project_type",
+     "references_section",
+     "column_break_lz9ie",
+     "line_id",
+     "amended_from"
+    ],
+    "fields": [
+     {
+      "default": "CN-.{item}.-.YYYY.-",
+      "fieldname": "naming_series",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Naming Series",
+      "options": "CN-.{item}.-.YYYY.-",
+      "reqd": 1
+     },
+     {
+      "fieldname": "contracting_item_group",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Contracting item Group",
+      "options": "Item Group",
+      "reqd": 1
+     },
+     {
+      "fetch_from": "item.stock_uom",
+      "fieldname": "unit",
+      "fieldtype": "Link",
+      "label": "Unit",
+      "options": "UOM"
+     },
+     {
+      "fieldname": "customer",
+      "fieldtype": "Link",
+      "label": "Owner",
+      "options": "Customer"
+     },
+     {
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "label": "Start Date"
+     },
+     {
+      "fieldname": "expected_time_period",
+      "fieldtype": "Int",
+      "label": "expected time period"
+     },
+     {
+      "fieldname": "column_break_puvaq",
+      "fieldtype": "Column Break"
+     },
+     {
+      "fieldname": "item",
+      "fieldtype": "Link",
+      "label": "Contracting Items",
+      "options": "Item"
+     },
+     {
+      "fieldname": "project_qty",
+      "fieldtype": "Float",
+      "label": "Project QTY"
+     },
+     {
+      "fieldname": "project",
+      "fieldtype": "Link",
+      "label": "Project",
+      "options": "Project"
+     },
+     {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "End Date"
+     },
+     {
+      "fieldname": "section_break_6qymy",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "material_costs",
+      "fieldtype": "Table",
+      "label": "Material costs",
+      "options": "Material costs"
+     },
+     {
+      "fieldname": "total_material_costs",
+      "fieldtype": "Currency",
+      "label": "Total Material costs",
+      "read_only": 1
+     },
+     {
+      "fieldname": "section_break_ueyhe",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "labor_costs",
+      "fieldtype": "Table",
+      "label": "Labor costs",
+      "options": "Labor costs"
+     },
+     {
+      "fieldname": "total_labor_costs",
+      "fieldtype": "Currency",
+      "label": "Total Labor costs",
+      "read_only": 1
+     },
+     {
+      "fieldname": "section_break_kmiex",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "contractors_table",
+      "fieldtype": "Table",
+      "label": "Contractors table",
+      "options": "Contractors table"
+     },
+     {
+      "fieldname": "total_contractors",
+      "fieldtype": "Currency",
+      "label": "Total Contractors",
+      "read_only": 1
+     },
+     {
+      "fieldname": "section_break_ykrqk",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "expenses_table",
+      "fieldtype": "Table",
+      "label": "Expenses Table",
+      "options": "Expenses Table"
+     },
+     {
+      "fieldname": "total_expenses",
+      "fieldtype": "Currency",
+      "label": "Total Expenses",
+      "read_only": 1
+     },
+     {
+      "fieldname": "section_break_kkppl",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "total_cost",
+      "fieldtype": "Currency",
+      "label": "Total  Cost",
+      "read_only": 1
+     },
+     {
+      "fieldname": "references_section",
+      "fieldtype": "Section Break",
+      "label": "References"
+     },
+     {
+      "fieldname": "column_break_lz9ie",
+      "fieldtype": "Column Break"
+     },
+     {
+      "fieldname": "line_id",
+      "fieldtype": "Data",
+      "label": "Line Id",
+      "read_only": 1
+     },
+     {
+      "fieldname": "amended_from",
+      "fieldtype": "Link",
+      "label": "Amended From",
+      "no_copy": 1,
+      "options": "Costing Note",
+      "print_hide": 1,
+      "read_only": 1,
+      "search_index": 1
+     },
+     {
+      "fieldname": "tender",
+      "fieldtype": "Link",
+      "label": "Tender",
+      "options": "Tender"
+     },
+     {
+      "fieldname": "row",
+      "fieldtype": "Data",
+      "hidden": 1,
+      "label": "Row",
+      "read_only": 1
+     },
+     {
+      "depends_on": "eval: doc.indirect_based_on == \"Amount\" && doc.total_cost",
+      "fieldname": "indirect_cost_amount",
+      "fieldtype": "Float",
+      "label": "Indirect Cost Amount"
+     },
+     {
+      "depends_on": "eval: doc.indirect_based_on == \"Percent\" && doc.total_cost",
+      "fieldname": "indirect_cost_percentage",
+      "fieldtype": "Percent",
+      "label": "Indirect Cost Percentage"
+     },
+     {
+      "fieldname": "section_break_lnkuo",
+      "fieldtype": "Section Break"
+     },
+     {
+      "depends_on": "eval: doc.total_cost",
+      "fieldname": "indirect_based_on",
+      "fieldtype": "Select",
+      "label": "Indirect Based ON",
+      "options": "Percent\nAmount"
+     },
+     {
+      "fieldname": "section_break_aqbhg",
+      "fieldtype": "Section Break"
+     },
+     {
+      "depends_on": "eval: doc.total_cost",
+      "fieldname": "profit_based_on",
+      "fieldtype": "Select",
+      "label": "Profit Based On",
+      "options": "Percent\nAmount"
+     },
+     {
+      "fieldname": "column_break_1u6hs",
+      "fieldtype": "Column Break"
+     },
+     {
+      "depends_on": "eval: doc.profit_based_on == \"Percent\" && doc.total_cost",
+      "fieldname": "profit_percentage",
+      "fieldtype": "Percent",
+      "label": "Profit Percentage"
+     },
+     {
+      "depends_on": "eval: doc.profit_based_on == \"Amount\" && doc.total_cost",
+      "fieldname": "profit_amount",
+      "fieldtype": "Float",
+      "label": "Profit Amount"
+     },
+     {
+      "fieldname": "total_profit_amount",
+      "fieldtype": "Float",
+      "label": "Gross Value",
+      "read_only": 1
+     },
+     {
+      "fieldname": "equibments",
+      "fieldtype": "Table",
+      "label": "Equibments",
+      "options": "Equibment"
+     },
+     {
+      "fieldname": "total_equibments_cost",
+      "fieldtype": "Currency",
+      "label": "Total Equibments Cost",
+      "read_only": 1
+     },
+     {
+      "fieldname": "section_break_ivv2g",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "section_break_gljdf",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "costing_note_template",
+      "fieldtype": "Link",
+      "label": "Costing Note Template",
+      "options": "Costing Note Template"
+     },
+     {
+      "fieldname": "column_break_k49li",
+      "fieldtype": "Column Break"
+     },
+     {
+      "fieldname": "column_break_h7zen",
+      "fieldtype": "Column Break"
+     },
+     {
+      "fieldname": "cost_value",
+      "fieldtype": "Data",
+      "label": "Cost Value",
+      "read_only": 1
+     },
+     {
+      "fieldname": "section_break_pmbxu",
+      "fieldtype": "Section Break"
+     },
+     {
+      "fieldname": "section_break_viv6p",
+      "fieldtype": "Section Break"
+     }
+    ],
+    "index_web_pages_for_search": 1,
+    "is_submittable": 1,
+    "links": [
+        {
+            "link_doctype": "Cost Control Planning",
+            "link_fieldname": "costing_note"
+           }   
+         ],
+    "modified": "2024-11-04 15:08:17.793331",
+    "modified_by": "Administrator",
+    "module": "Contracting",
+    "name": "Costing Note",
+    "naming_rule": "By \"Naming Series\" field",
+    "owner": "Administrator",
+    "permissions": [
+     {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+     }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+   }

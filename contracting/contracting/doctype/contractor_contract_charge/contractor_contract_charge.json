@@ -1,0 +1,76 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-17 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "charge_type",
+  "description",
+  "rate_type",
+  "rate_or_amount",
+  "add_or_deduct",
+  "computed_amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "charge_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Charge Type",
+   "options": "Tax\nCharge\nRetention\nMaterial Supplied by Company (Manual Fallback)",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "default": "% of Net Total",
+   "fieldname": "rate_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Rate Type",
+   "options": "% of Net Total\nFlat Amount",
+   "reqd": 1
+  },
+  {
+   "description": "Percent when Rate Type is '% of Net Total', otherwise a flat currency amount.",
+   "fieldname": "rate_or_amount",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Rate / Amount"
+  },
+  {
+   "default": "Add",
+   "fieldname": "add_or_deduct",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Add or Deduct",
+   "options": "Add\nDeduct",
+   "reqd": 1
+  },
+  {
+   "fieldname": "computed_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Computed Amount",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-17 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Contract Charge",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

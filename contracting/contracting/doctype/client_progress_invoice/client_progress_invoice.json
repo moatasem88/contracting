@@ -1,0 +1,205 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-14 18:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "project",
+  "invoice_category",
+  "progress_sales_orders_section",
+  "progress_sales_orders",
+  "sales_order_section",
+  "sales_order",
+  "contract_document",
+  "invoice_date",
+  "col_break_1",
+  "status",
+  "retention_percent",
+  "measured_by",
+  "approved_by",
+  "sales_invoice",
+  "retention_journal_entry",
+  "items_section",
+  "items",
+  "totals_section",
+  "total_this_period",
+  "col_break_2",
+  "total_retention_held",
+  "net_receivable"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "CPI-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "description": "When set, this claim spans every submitted Sales Order under this Project in the chosen Invoice Category, instead of a single Sales Order.",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "depends_on": "eval:doc.project",
+   "fieldname": "invoice_category",
+   "fieldtype": "Link",
+   "label": "Invoice Category",
+   "options": "Tender Category"
+  },
+  {
+   "depends_on": "eval:doc.project && doc.invoice_category",
+   "fieldname": "progress_sales_orders_section",
+   "fieldtype": "Section Break",
+   "label": "Sales Orders"
+  },
+  {
+   "description": "System-managed: always mirrors the Sales Orders currently matching Project + Invoice Category. Not hand-edited.",
+   "fieldname": "progress_sales_orders",
+   "fieldtype": "Table",
+   "options": "Client Progress Invoice Sales Order"
+  },
+  {
+   "fieldname": "sales_order_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Sales Order",
+   "options": "Sales Order"
+  },
+  {
+   "depends_on": "eval:doc.contract_document",
+   "description": "Superseded by Sales Order - only set on invoices raised before that change.",
+   "fieldname": "contract_document",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Contract Document",
+   "options": "Contract Document"
+  },
+  {
+   "default": "Today",
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Invoice Date"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nMeasured\nApproved\nInvoiced",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_percent",
+   "fieldtype": "Percent",
+   "label": "Retention %"
+  },
+  {
+   "fieldname": "measured_by",
+   "fieldtype": "Link",
+   "label": "Measured By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_journal_entry",
+   "fieldtype": "Link",
+   "label": "Retention Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_section",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Client Progress Invoice Item"
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_this_period",
+   "fieldtype": "Currency",
+   "label": "Total This Period",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_retention_held",
+   "fieldtype": "Currency",
+   "label": "Total Retention Held",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "net_receivable",
+   "fieldtype": "Currency",
+   "label": "Net Receivable",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-14 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Client Progress Invoice",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

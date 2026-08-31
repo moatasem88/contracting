@@ -1,0 +1,127 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TEN-{customer}-{date}-{####}",
+ "creation": "2024-07-18 03:41:16.821837",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "date",
+  "project_receipt_date",
+  "column_break_8w2jm",
+  "project_start_date",
+  "project_end_date",
+  "column_break_xi4ao",
+  "customer",
+  "project",
+  "section_break_lrvwl",
+  "tender_items",
+  "amended_from",
+  "section_break_3b1nm",
+  "quotation"
+ ],
+ "fields": [
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_receipt_date",
+   "fieldtype": "Date",
+   "label": "Project Receipt Date"
+  },
+  {
+   "fieldname": "project_start_date",
+   "fieldtype": "Date",
+   "label": "Project Start Date"
+  },
+  {
+   "fieldname": "project_end_date",
+   "fieldtype": "Date",
+   "label": "Project end date"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "section_break_lrvwl",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "tender_items",
+   "fieldtype": "Table",
+   "label": "Tender Items",
+   "options": "Tender Item"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Tender Contract",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "column_break_8w2jm",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_xi4ao",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_3b1nm",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "quotation",
+   "fieldtype": "Link",
+   "label": "Quotation",
+   "options": "Quotation"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2024-07-18 04:19:04.121308",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Tender Contract",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

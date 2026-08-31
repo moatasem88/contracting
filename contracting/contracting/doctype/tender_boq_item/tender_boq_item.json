@@ -1,0 +1,259 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-16 08:52:57.819119",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "indent",
+  "is_group",
+  "parent_row_name",
+  "work_item_template",
+  "item_name",
+  "description",
+  "item_type",
+  "item_code",
+  "uom",
+  "original_quantity",
+  "vat_percentage",
+  "other_additions_pct",
+  "fixed_additions",
+  "effective_unit_price",
+  "total_amount",
+  "material_cost",
+  "labor_cost",
+  "equipment_cost",
+  "boq_direct_cost",
+  "boq_safety_factor_amount",
+  "boq_indirect_cost_amount",
+  "indirect_cost_percent",
+  "display_currency",
+  "display_amount",
+  "margin_percent",
+  "sell_rate",
+  "sell_amount",
+  "invoiced_quantity",
+  "remaining_quantity",
+  "completion_percentage",
+  "is_locked"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "indent",
+   "fieldtype": "Int",
+   "label": "Indent"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "label": "Is Group"
+  },
+  {
+   "fieldname": "parent_row_name",
+   "fieldtype": "Data",
+   "label": "Parent Row Name"
+  },
+  {
+   "fieldname": "work_item_template",
+   "fieldtype": "Link",
+   "label": "Work Item Template",
+   "options": "Work Item Template V2"
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Name"
+  },
+  {
+   "columns": 2,
+   "description": "Seeded from the Work Item Template as a starting point, then edited to describe this specific tender's scope. This is the text that ends up on the Sales Order line.",
+   "fetch_from": "work_item_template.description",
+   "fetch_if_empty": 1,
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "fieldname": "item_type",
+   "fieldtype": "Select",
+   "label": "Item Type",
+   "options": "\nWork Item\nMaterial\nLabor\nEquipment\nSubcontracting"
+  },
+  {
+   "fetch_from": "work_item_template.item",
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item Code",
+   "options": "Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "original_quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Original Quantity"
+  },
+  {
+   "fieldname": "vat_percentage",
+   "fieldtype": "Float",
+   "label": "VAT %"
+  },
+  {
+   "fieldname": "other_additions_pct",
+   "fieldtype": "Float",
+   "label": "Other Additions %"
+  },
+  {
+   "fieldname": "fixed_additions",
+   "fieldtype": "Currency",
+   "label": "Fixed Additions"
+  },
+  {
+   "fieldname": "effective_unit_price",
+   "fieldtype": "Currency",
+   "label": "Effective Unit Price",
+   "read_only": 1
+  },
+  {
+   "description": "Rollup: sum of amounts from every Material/Labor/Equipment row linked to this work item.",
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of direct_cost_amount across this work item's Material rows.",
+   "fieldname": "material_cost",
+   "fieldtype": "Currency",
+   "label": "Material Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of direct_cost_amount across this work item's Labor rows.",
+   "fieldname": "labor_cost",
+   "fieldtype": "Currency",
+   "label": "Labor Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of direct_cost_amount across this work item's Equipment rows.",
+   "fieldname": "equipment_cost",
+   "fieldtype": "Currency",
+   "label": "Equipment Cost",
+   "read_only": 1
+  },
+  {
+   "description": "material_cost + labor_cost + equipment_cost.",
+   "fieldname": "boq_direct_cost",
+   "fieldtype": "Currency",
+   "label": "BOQ Direct Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of safety_factor_amount across all three resource tables for this work item.",
+   "fieldname": "boq_safety_factor_amount",
+   "fieldtype": "Currency",
+   "label": "BOQ Safety Factor Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of indirect_cost_amount across all three resource tables for this work item.",
+   "fieldname": "boq_indirect_cost_amount",
+   "fieldtype": "Currency",
+   "label": "BOQ Indirect Cost Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Always equals the parent Tender's Propagated Addition %, shown here for convenience.",
+   "fieldname": "indirect_cost_percent",
+   "fieldtype": "Percent",
+   "label": "Indirect Cost %",
+   "read_only": 1
+  },
+  {
+   "description": "Optional - convert total_amount into another currency for reading convenience. Never alters the stored EGP figures.",
+   "fieldname": "display_currency",
+   "fieldtype": "Link",
+   "label": "Display Currency",
+   "options": "Currency"
+  },
+  {
+   "description": "total_amount divided by display_currency's exchange rate (Tender Currencies table).",
+   "fieldname": "display_amount",
+   "fieldtype": "Currency",
+   "label": "Display Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "margin_percent",
+   "fieldtype": "Percent",
+   "label": "Margin %"
+  },
+  {
+   "fieldname": "sell_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Sell Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sell_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Sell Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "invoiced_quantity",
+   "fieldtype": "Float",
+   "label": "Invoiced Quantity",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_quantity",
+   "fieldtype": "Float",
+   "label": "Remaining Quantity",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completion_percentage",
+   "fieldtype": "Float",
+   "label": "Completion %",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_locked",
+   "fieldtype": "Check",
+   "label": "Is Locked"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-16 08:52:57.819119",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Tender BOQ Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "item_name"
+}

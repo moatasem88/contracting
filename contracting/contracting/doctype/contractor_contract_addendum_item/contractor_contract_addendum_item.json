@@ -1,0 +1,101 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-30 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "work_item",
+  "labor_item",
+  "equipment_item",
+  "resource_item",
+  "available_qty",
+  "qty_delta",
+  "unit_price",
+  "amount"
+ ],
+ "fields": [
+  {
+   "description": "The Tender BOQ line being amended. Restricted to the base contract's tender BOQ rows.",
+   "fieldname": "work_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Work Item",
+   "options": "Tender BOQ Item",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:parent.type_subcontractor == \"Installing\"",
+   "description": "Labor line within the selected work item. Required for Install Only contracts.",
+   "fieldname": "labor_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Labor Item",
+   "mandatory_depends_on": "eval:parent.type_subcontractor == \"Installing\"",
+   "options": "Tender Labor Item"
+  },
+  {
+   "depends_on": "eval:parent.type_subcontractor == \"Equipment\"",
+   "description": "Equipment line within the selected work item. Required for Equipment contracts.",
+   "fieldname": "equipment_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Equipment Item",
+   "mandatory_depends_on": "eval:parent.type_subcontractor == \"Equipment\"",
+   "options": "Tender Equipment Item"
+  },
+  {
+   "description": "The Item on the Labor/Equipment line selected above. Carried across so it stays visible in list view, reports and print.",
+   "fieldname": "resource_item",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Resource Item",
+   "read_only": 1
+  },
+  {
+   "description": "Remaining quantity available on the base contract's tender, excluding the base contract's own already-committed qty.",
+   "fieldname": "available_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Available Qty",
+   "read_only": 1
+  },
+  {
+   "description": "Additional quantity this addendum grants. Applied as a new row on the base contract's Contracted Items on approval.",
+   "fieldname": "qty_delta",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty Delta",
+   "reqd": 1
+  },
+  {
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Unit Price",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Contract Addendum Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "resource_item"
+}

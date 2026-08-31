@@ -1,0 +1,133 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2023-02-26 17:03:28.866468",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "is_group",
+  "status",
+  "series",
+  "contracting_item_group",
+  "contracting_item",
+  "uom",
+  "qty",
+  "cost_setup",
+  "total_cost",
+  "rate",
+  "description",
+  "costing_note"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "is group"
+  },
+  {
+   "columns": 1,
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "columns": 1,
+   "fieldname": "series",
+   "fieldtype": "Read Only",
+   "in_list_view": 1,
+   "label": "series"
+  },
+  {
+   "columns": 1,
+   "fieldname": "contracting_item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Contracting item Group",
+   "options": "Item Group",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fetch_from": "contracting_item.stock_uom",
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "UOM",
+   "mandatory_depends_on": "eval:doc.contracting_items",
+   "options": "UOM"
+  },
+  {
+   "columns": 1,
+   "fieldname": "qty",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "QTY",
+   "mandatory_depends_on": "eval:doc.contracting_items"
+  },
+  {
+   "columns": 1,
+   "fieldname": "cost_setup",
+   "fieldtype": "Button",
+   "in_list_view": 1,
+   "label": "Cost Setup",
+   "mandatory_depends_on": "eval:doc.contracting_items"
+  },
+  {
+   "columns": 1,
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Cost",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "contracting_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Contracting Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "costing_note",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Costing Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-08-22 00:10:45.078610",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contracting Items Child",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

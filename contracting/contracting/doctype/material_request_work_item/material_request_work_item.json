@@ -1,0 +1,50 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-17 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "project_work_item",
+  "work_item_name",
+  "source_tender_boq_item"
+ ],
+ "fields": [
+  {
+   "description": "Project BOQ line this request draws against.",
+   "fieldname": "project_work_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Work Item",
+   "options": "Project BOQ Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "work_item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Work Item Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_tender_boq_item",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Source Tender BOQ Item",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-17 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Material Request Work Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,198 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-30 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "subcontractor_contract",
+  "project_tenders",
+  "type_subcontractor",
+  "column_break_header",
+  "addendum_date",
+  "amended_from",
+  "addendum_items_section",
+  "addendum_items",
+  "totals_section",
+  "grand_total_delta",
+  "requires_ceo_approval",
+  "workflow_state"
+ ],
+ "fields": [
+  {
+   "default": "Subcontractor-ADDENDUM-.YYYY.-",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Addendum Serial",
+   "no_copy": 1,
+   "options": "Subcontractor-ADDENDUM-.YYYY.-",
+   "print_hide": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "subcontractor_contract",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Subcontractor Contract",
+   "options": "Subcontractor Contract",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "Every Tender in scope for the base contract's Project - copied from Subcontractor Contract.project_tenders on validate (a Table field, so this can't be a plain fetch_from). Scopes which work items Addendum Items may select.",
+   "fieldname": "project_tenders",
+   "fieldtype": "Table",
+   "label": "Project Tenders",
+   "options": "Subcontractor Contract Tender",
+   "read_only": 1
+  },
+  {
+   "description": "Derived from the base contract - decides which resource link Addendum Items require.",
+   "fetch_from": "subcontractor_contract.type_subcontractor",
+   "fieldname": "type_subcontractor",
+   "fieldtype": "Data",
+   "label": "Contract Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "addendum_date",
+   "fieldtype": "Date",
+   "label": "Addendum Date"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Contractor Contract Addendum",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "addendum_items_section",
+   "fieldtype": "Section Break",
+   "label": "Addendum Items"
+  },
+  {
+   "description": "Additional scope granted on the base contract. Applied as new rows on Contracted Items when this addendum is Approved.",
+   "fieldname": "addendum_items",
+   "fieldtype": "Table",
+   "label": "Addendum Items",
+   "options": "Contractor Contract Addendum Item"
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "bold": 1,
+   "fieldname": "grand_total_delta",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Grand Total Delta",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Set automatically from Contracting Settings' CEO approval threshold, against this addendum's own Grand Total Delta. Drives the conditional CEO step in the approval workflow.",
+   "fieldname": "requires_ceo_approval",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Requires CEO Approval",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "make_attachments_public": 1,
+ "modified": "2026-08-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Contract Addendum",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Contracts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "cost control manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Company CEO",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "show_name_in_global_search": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

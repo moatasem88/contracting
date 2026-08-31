@@ -1,0 +1,64 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2024-11-09 12:18:03.713757",
+    "default_view": "List",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+     "task",
+     "task_name",
+     "subject",
+     "start_date",
+     "end_date"
+    ],
+    "fields": [
+     {
+      "fieldname": "task",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Task"
+     },
+     {
+      "fieldname": "subject",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Subject"
+     },
+     {
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Start Date"
+     },
+     {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "End Date"
+     },
+     {
+      "fieldname": "task_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "in_preview": 1,
+      "in_standard_filter": 1,
+      "label": "Task Name",
+      "options": "Task",
+      "read_only": 1
+     }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2024-11-18 02:08:45.922129",
+    "modified_by": "Administrator",
+    "module": "Contracting",
+    "name": "Tasks",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+   }

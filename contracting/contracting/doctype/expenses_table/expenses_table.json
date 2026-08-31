@@ -1,0 +1,102 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2023-02-26 23:14:06.387995",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+     "item",
+     "uom",
+     "qty",
+     "cost",
+     "total_cost",
+     "vat",
+     "vat_amount",
+     "total_cost_with_vat",
+     "allocate"
+    ],
+    "fields": [
+     {
+      "fieldname": "item",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Item",
+      "options": "Item",
+      "reqd": 1
+     },
+     {
+      "fetch_from": "item.stock_uom",
+      "fieldname": "uom",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "UOM",
+      "options": "UOM",
+      "reqd": 1
+     },
+     {
+      "fieldname": "qty",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "QTY",
+      "reqd": 1
+     },
+     {
+      "fieldname": "cost",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "label": "Cost",
+      "reqd": 1
+     },
+     {
+      "fieldname": "total_cost",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": " Net Total Cost",
+      "read_only": 1
+     },
+     {
+      "fieldname": "vat",
+      "fieldtype": "Percent",
+      "in_list_view": 1,
+      "in_preview": 1,
+      "in_standard_filter": 1,
+      "label": "Vat"
+     },
+     {
+      "fieldname": "vat_amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "in_preview": 1,
+      "in_standard_filter": 1,
+      "label": "Vat Amount",
+      "read_only": 1
+     },
+     {
+      "fieldname": "total_cost_with_vat",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "in_preview": 1,
+      "in_standard_filter": 1,
+      "label": "Total Cost",
+      "read_only": 1
+     },
+     {
+      "fieldname": "allocate",
+      "fieldtype": "Button",
+      "label": "Allocate"
+     }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2024-11-11 14:21:44.476471",
+    "modified_by": "Administrator",
+    "module": "Contracting",
+    "name": "Expenses Table",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": []
+   }

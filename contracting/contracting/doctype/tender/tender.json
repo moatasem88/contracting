@@ -1,0 +1,311 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-07-16 09:35:25.992755",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "details_tab",
+  "naming_series",
+  "project_tender",
+  "project_name",
+  "client",
+  "col_break_1",
+  "status",
+  "tender_date",
+  "submission_deadline",
+  "site_location",
+  "tender_category",
+  "version_section",
+  "tender_version",
+  "previous_tender",
+  "resource_settings_section",
+  "consolidate_rates_by_item",
+  "safety_factor_percent",
+  "propagated_addition_percent",
+  "currency_table",
+  "boq_section",
+  "boq_items",
+  "totals_section",
+  "subtotal",
+  "col_break_2",
+  "total_vat",
+  "total_additions",
+  "grand_total",
+  "documents_section",
+  "attachment_details",
+  "material_tab",
+  "material_items",
+  "labor_tab",
+  "labor_items",
+  "equipment_tab",
+  "equipment_items"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "TND-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_tender",
+   "fieldtype": "Link",
+   "label": "Project Tender",
+   "options": "Project Tender",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "project_tender.project_name",
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Project Name",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fetch_from": "project_tender.client",
+   "fieldname": "client",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Client",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "no_copy": 1,
+   "options": "Draft\nIn Progress\nComplete"
+  },
+  {
+   "default": "Today",
+   "fieldname": "tender_date",
+   "fieldtype": "Date",
+   "label": "Tender Date"
+  },
+  {
+   "fieldname": "submission_deadline",
+   "fieldtype": "Date",
+   "label": "Submission Deadline"
+  },
+  {
+   "fetch_from": "project_tender.site_location",
+   "fieldname": "site_location",
+   "fieldtype": "Data",
+   "label": "Site Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tender_category",
+   "fieldtype": "Link",
+   "label": "Tender Category",
+   "options": "Tender Category"
+  },
+  {
+   "fieldname": "version_section",
+   "fieldtype": "Section Break",
+   "label": "Version & Links"
+  },
+  {
+   "default": "1",
+   "fieldname": "tender_version",
+   "fieldtype": "Int",
+   "label": "Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "previous_tender",
+   "fieldtype": "Link",
+   "label": "Previous Tender",
+   "options": "Tender",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resource_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Resource Settings"
+  },
+  {
+   "default": "0",
+   "description": "When on, editing an item's rate in the Material/Labor/Equipment tabs applies that same rate to every other row referencing the same item, across all work items.",
+   "fieldname": "consolidate_rates_by_item",
+   "fieldtype": "Check",
+   "label": "Consolidate Rates by Item"
+  },
+  {
+   "description": "Risk inflation applied to Material/Labor/Equipment cost prices before rollup.",
+   "fieldname": "safety_factor_percent",
+   "fieldtype": "Percent",
+   "label": "Safety Factor %"
+  },
+  {
+   "description": "Pushed from the linked Project Tender's Total Addition % whenever it changes - not a live formula on this Tender, and not editable here.",
+   "fieldname": "propagated_addition_percent",
+   "fieldtype": "Percent",
+   "label": "Propagated Addition %",
+   "read_only": 1
+  },
+  {
+   "description": "Currencies this Tender's Material/Labor/Equipment rows may be priced in, each with a manually entered exchange rate to the base currency. The base currency itself is always implicitly available at an exchange rate of 1.",
+   "fieldname": "currency_table",
+   "fieldtype": "Table",
+   "label": "Currencies",
+   "options": "Tender Currency Detail"
+  },
+  {
+   "fieldname": "boq_section",
+   "fieldtype": "Section Break",
+   "label": "Bill of Quantities"
+  },
+  {
+   "fieldname": "boq_items",
+   "fieldtype": "Table",
+   "label": "BOQ Items",
+   "options": "Tender BOQ Item"
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "subtotal",
+   "fieldtype": "Currency",
+   "label": "Subtotal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_vat",
+   "fieldtype": "Currency",
+   "label": "Total VAT",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_additions",
+   "fieldtype": "Currency",
+   "label": "Total Additions",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "documents_section",
+   "fieldtype": "Section Break",
+   "label": "Documents"
+  },
+  {
+   "fieldname": "attachment_details",
+   "fieldtype": "Table",
+   "label": "Attachments",
+   "options": "Tender Attachment"
+  },
+  {
+   "fieldname": "material_tab",
+   "fieldtype": "Tab Break",
+   "label": "Material"
+  },
+  {
+   "fieldname": "material_items",
+   "fieldtype": "Table",
+   "label": "Material Items",
+   "options": "Tender Material Item"
+  },
+  {
+   "fieldname": "labor_tab",
+   "fieldtype": "Tab Break",
+   "label": "Labor"
+  },
+  {
+   "fieldname": "labor_items",
+   "fieldtype": "Table",
+   "label": "Labor Items",
+   "options": "Tender Labor Item"
+  },
+  {
+   "fieldname": "equipment_tab",
+   "fieldtype": "Tab Break",
+   "label": "Equipment"
+  },
+  {
+   "fieldname": "equipment_items",
+   "fieldtype": "Table",
+   "label": "Equipment Items",
+   "options": "Tender Equipment Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-16 09:35:25.992755",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Tender",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Contracts Manager",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "cost control manager",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Company CEO",
+   "select": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "project_name"
+}

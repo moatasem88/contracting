@@ -1,0 +1,178 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-14 18:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "contractor_contract",
+  "invoice_date",
+  "col_break_1",
+  "status",
+  "retention_percent",
+  "measured_by",
+  "approved_by",
+  "purchase_invoice",
+  "retention_journal_entry",
+  "items_section",
+  "items",
+  "condition_progress_section",
+  "condition_progress",
+  "totals_section",
+  "total_this_period",
+  "col_break_2",
+  "total_retention_held",
+  "net_payable"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "CINV-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contractor_contract",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Subcontractor Contract",
+   "options": "Subcontractor Contract",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Invoice Date"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nMeasured\nApproved\nInvoiced",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_percent",
+   "fieldtype": "Percent",
+   "label": "Retention %"
+  },
+  {
+   "fieldname": "measured_by",
+   "fieldtype": "Link",
+   "label": "Measured By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_journal_entry",
+   "fieldtype": "Link",
+   "label": "Retention Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "items_section",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Items",
+   "options": "Contractor Invoice Item"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:(doc.condition_progress || []).length > 0",
+   "fieldname": "condition_progress_section",
+   "fieldtype": "Section Break",
+   "label": "Condition Progress"
+  },
+  {
+   "description": "Progress claimed per Payment Condition, only when the contract carries Payment Conditions. Items above become rollups of these rows when this table is used.",
+   "fieldname": "condition_progress",
+   "fieldtype": "Table",
+   "label": "Condition Progress",
+   "options": "Contractor Invoice Condition Progress"
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_this_period",
+   "fieldtype": "Currency",
+   "label": "Total This Period",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_retention_held",
+   "fieldtype": "Currency",
+   "label": "Total Retention Held",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "net_payable",
+   "fieldtype": "Currency",
+   "label": "Net Payable",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-14 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Invoice",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "contractor_contract"
+}

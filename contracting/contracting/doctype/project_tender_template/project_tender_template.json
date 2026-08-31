@@ -1,0 +1,83 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:temp_name",
+ "creation": "2026-07-03 09:45:42.542088",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "temp_name",
+  "temp_proj_type",
+  "temp_description",
+  "temp_grand_total",
+  "is_active"
+ ],
+ "fields": [
+  {
+   "fieldname": "temp_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Template Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "temp_proj_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Project Type",
+   "options": "Private Sector\nMilitary\nPolice",
+   "reqd": 1
+  },
+  {
+   "fieldname": "temp_description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "temp_grand_total",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Grand Total"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-14 14:31:17.738706",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Tender Template",
+ "naming_rule": "By fieldname",
+ "owner": "tarek.elfar@friendsco.net",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

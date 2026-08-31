@@ -1,0 +1,114 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "tender",
+  "sales_order",
+  "total_direct_cost",
+  "total_sales_amount",
+  "invoiced_amount",
+  "invoiced_percentage",
+  "payments_collected",
+  "payments_collected_percentage",
+  "total_purchases_amount",
+  "total_subcontracting_amount",
+  "liabilities"
+ ],
+ "fields": [
+  {
+   "fieldname": "tender",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Tender",
+   "options": "Tender",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_direct_cost",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Direct Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_sales_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Sales Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoiced_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Invoiced Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoiced_percentage",
+   "fieldtype": "Percent",
+   "label": "Invoiced %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payments_collected",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Payments Collected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payments_collected_percentage",
+   "fieldtype": "Percent",
+   "label": "Payments Collected %",
+   "read_only": 1
+  },
+  {
+   "description": "Actual spend on Purchase Receipt/Invoice lines traced to this Tender's work items.",
+   "fieldname": "total_purchases_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Purchases",
+   "read_only": 1
+  },
+  {
+   "description": "Actual subcontracting spend (Contractor Invoice sourced) traced to this Tender.",
+   "fieldname": "total_subcontracting_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Subcontracting",
+   "read_only": 1
+  },
+  {
+   "fieldname": "liabilities",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Liabilities",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Cost Billing Detail",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

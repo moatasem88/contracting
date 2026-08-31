@@ -1,0 +1,270 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-22 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "details_tab",
+  "naming_series",
+  "project_name",
+  "client",
+  "site_location",
+  "status",
+  "col_break_1",
+  "duration",
+  "bua",
+  "perimeter",
+  "project_type",
+  "direct_cost_section",
+  "direct_cost_details",
+  "total_direct_cost",
+  "direct_cost_percent_of_total_price",
+  "indirect_cost_section",
+  "indirect_cost_details",
+  "total_indirect_cost",
+  "indirect_cost_percent_of_direct_cost",
+  "indirect_cost_percent_of_total_price",
+  "total_direct_and_indirect_cost",
+  "overhead_deduction_section",
+  "overhead_deduction_details",
+  "sub_total_overhead_and_profit",
+  "total_sell_price",
+  "overhead_deduction_percent_of_direct_cost",
+  "overhead_deduction_percent_of_total_price",
+  "total_addition_percent"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "PT-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Project Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "client",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Client",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "site_location",
+   "fieldtype": "Data",
+   "label": "Site Location"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "no_copy": 1,
+   "options": "Draft\nUnder Review\nSubmitted\nWon\nLost\nCancelled\nSuperseded"
+  },
+  {
+   "fieldname": "col_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Duration (months)",
+   "fieldname": "duration",
+   "fieldtype": "Int",
+   "label": "Duration (months)"
+  },
+  {
+   "fieldname": "bua",
+   "fieldtype": "Float",
+   "label": "Built-Up Area (sqm)"
+  },
+  {
+   "fieldname": "perimeter",
+   "fieldtype": "Float",
+   "label": "Perimeter (m)"
+  },
+  {
+   "fieldname": "project_type",
+   "fieldtype": "Link",
+   "label": "Project Type",
+   "options": "Project Type"
+  },
+  {
+   "fieldname": "direct_cost_section",
+   "fieldtype": "Section Break",
+   "label": "Direct Cost"
+  },
+  {
+   "fieldname": "direct_cost_details",
+   "fieldtype": "Table",
+   "label": "Direct Cost Details",
+   "options": "Project Tender Direct Cost Detail"
+  },
+  {
+   "fieldname": "total_direct_cost",
+   "fieldtype": "Currency",
+   "label": "Total Direct Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "direct_cost_percent_of_total_price",
+   "fieldtype": "Percent",
+   "label": "% of Total Price",
+   "read_only": 1
+  },
+  {
+   "fieldname": "indirect_cost_section",
+   "fieldtype": "Section Break",
+   "label": "Indirect Cost"
+  },
+  {
+   "fieldname": "indirect_cost_details",
+   "fieldtype": "Table",
+   "label": "Indirect Cost Details",
+   "options": "Project Tender Cost Line"
+  },
+  {
+   "fieldname": "total_indirect_cost",
+   "fieldtype": "Currency",
+   "label": "Total Indirect Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "indirect_cost_percent_of_direct_cost",
+   "fieldtype": "Percent",
+   "label": "% of Direct Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "indirect_cost_percent_of_total_price",
+   "fieldtype": "Percent",
+   "label": "% of Total Price",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_direct_and_indirect_cost",
+   "fieldtype": "Currency",
+   "label": "Total Direct + Indirect Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overhead_deduction_section",
+   "fieldtype": "Section Break",
+   "label": "Overhead, Profit & Deductions"
+  },
+  {
+   "fieldname": "overhead_deduction_details",
+   "fieldtype": "Table",
+   "label": "Overhead / Deduction Details",
+   "options": "Project Tender Cost Line"
+  },
+  {
+   "fieldname": "sub_total_overhead_and_profit",
+   "fieldtype": "Currency",
+   "label": "Sub Total Overhead & Profit",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "total_sell_price",
+   "fieldtype": "Currency",
+   "label": "Total Sell Price",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overhead_deduction_percent_of_direct_cost",
+   "fieldtype": "Percent",
+   "label": "% of Direct Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overhead_deduction_percent_of_total_price",
+   "fieldtype": "Percent",
+   "label": "% of Total Price",
+   "read_only": 1
+  },
+  {
+   "description": "(Total Sell Price - Total Direct Cost) / Total Direct Cost. Blended markup over Direct Cost across everything downstream - itemized Indirect Cost/Overhead/Deductions/VAT combined.",
+   "fieldname": "total_addition_percent",
+   "fieldtype": "Percent",
+   "label": "Markup %",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Tender",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Planning Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Contracts Manager",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "cost control manager",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Company CEO",
+   "select": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "project_name"
+}

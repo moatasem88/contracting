@@ -1,0 +1,155 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:template_name",
+ "creation": "2024-07-29 02:31:01.451841",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "template_name",
+  "section_break_hynlz",
+  "material_costs",
+  "total_material_costs",
+  "section_break_6h6yy",
+  "labor_costs",
+  "total_labor_costs",
+  "section_break_abtuz",
+  "contractors_table",
+  "total_contractors",
+  "section_break_zbnku",
+  "expenses_table",
+  "total_expenses",
+  "section_break_eldp1",
+  "equibments",
+  "total_equibments_cost",
+  "section_break_lirbd",
+  "total_cost"
+ ],
+ "fields": [
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Template Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "section_break_hynlz",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "material_costs",
+   "fieldtype": "Table",
+   "label": "Material costs",
+   "options": "Material costs"
+  },
+  {
+   "fieldname": "total_material_costs",
+   "fieldtype": "Currency",
+   "label": "Total Material costs",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_6h6yy",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "labor_costs",
+   "fieldtype": "Table",
+   "label": "Labor costs",
+   "options": "Labor costs"
+  },
+  {
+   "fieldname": "total_labor_costs",
+   "fieldtype": "Currency",
+   "label": "Total Labor costs",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_abtuz",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "contractors_table",
+   "fieldtype": "Table",
+   "label": "Contractors table",
+   "options": "Contractors table"
+  },
+  {
+   "fieldname": "total_contractors",
+   "fieldtype": "Currency",
+   "label": "Total Contractors",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_zbnku",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "expenses_table",
+   "fieldtype": "Table",
+   "label": "Expenses Table",
+   "options": "Expenses Table"
+  },
+  {
+   "fieldname": "total_expenses",
+   "fieldtype": "Currency",
+   "label": "Total Expenses",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_eldp1",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "equibments",
+   "fieldtype": "Table",
+   "label": "Equibments",
+   "options": "Equibment"
+  },
+  {
+   "fieldname": "total_equibments_cost",
+   "fieldtype": "Currency",
+   "label": "Total Equibments Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_lirbd",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "total_cost",
+   "fieldtype": "Currency",
+   "label": "Total Cost",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-07-29 02:41:59.952095",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Costing Note Template",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,36 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-30 15:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "tender"
+ ],
+ "fields": [
+  {
+   "description": "One of the Tenders linked to the contract's Project - directly via Project.tender, or via Project.project_tender's Direct Cost Details for newer multi-tender projects.",
+   "fieldname": "tender",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Tender",
+   "options": "Tender",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-30 15:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Subcontractor Contract Tender",
+ "owner": "Administrator",
+ "permissions": [],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "tender"
+}

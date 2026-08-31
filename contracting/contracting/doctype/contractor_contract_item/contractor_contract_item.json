@@ -1,0 +1,125 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-17 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "work_item",
+  "description",
+  "uom",
+  "labor_item",
+  "equipment_item",
+  "resource_item",
+  "available_qty",
+  "qty",
+  "unit_price",
+  "amount",
+  "material_conflict_override"
+ ],
+ "fields": [
+  {
+   "description": "The Tender BOQ line being contracted. Restricted to the header tender's BOQ rows.",
+   "fieldname": "work_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Work Item",
+   "options": "Tender BOQ Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "label": "UOM",
+   "options": "UOM",
+   "read_only": 1
+  },
+  {
+   "description": "Deprecated - superseded by the Labor tab (Contractor Contract Labor Item). Retained so pre-existing drafts keep their data.",
+   "fieldname": "labor_item",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Labor Item (Deprecated)",
+   "options": "Tender Labor Item",
+   "print_hide": 1
+  },
+  {
+   "description": "Deprecated - superseded by the Equipment tab (Contractor Contract Equipment Item). Retained so pre-existing drafts keep their data.",
+   "fieldname": "equipment_item",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Equipment Item (Deprecated)",
+   "options": "Tender Equipment Item",
+   "print_hide": 1
+  },
+  {
+   "description": "Deprecated - superseded by the Labor/Equipment tabs. Retained so pre-existing drafts keep their data.",
+   "fieldname": "resource_item",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Resource Item (Deprecated)",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Remaining quantity available to contract, reconciled across all contract types. Only meaningful for Supply and Install - Install Only / Equipment now track availability on their own Labor/Equipment tab rows instead.",
+   "depends_on": "eval:parent.type_subcontractor==\"Supplying and installing\"",
+   "fieldname": "available_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Available Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty",
+   "reqd": 1
+  },
+  {
+   "description": "Enterable once Qty is set.",
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Unit Price",
+   "read_only_depends_on": "eval:!doc.qty",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Only the 'cost control manager' role may set this, and only once at least one conflicting line is tagged for subcontractor deduction. The conflicting requests are listed in the Material Conflicts section below.",
+   "fieldname": "material_conflict_override",
+   "fieldtype": "Check",
+   "label": "Material Conflict Override"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-17 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Contract Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "description"
+}

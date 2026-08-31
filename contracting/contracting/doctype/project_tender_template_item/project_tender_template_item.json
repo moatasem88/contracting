@@ -1,0 +1,153 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-03 09:54:15.259913",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_template",
+  "parent_item",
+  "is_group",
+  "boq_item_num",
+  "boq_wi_temp",
+  "boq_item_desc",
+  "boq_item_uom",
+  "boq_item_rate",
+  "boq_item_qunatity",
+  "boq_item_amount",
+  "boq_rolled_item",
+  "lft",
+  "rgt",
+  "old_parent",
+  "parent_project_tender_template_item"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_template",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Template",
+   "options": "Project Tender Template",
+   "reqd": 1
+  },
+  {
+   "fieldname": "parent_item",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Parent Item",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Group",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_item_num",
+   "fieldtype": "Data",
+   "label": "item Number"
+  },
+  {
+   "fieldname": "boq_wi_temp",
+   "fieldtype": "Link",
+   "label": "Work Item Templet",
+   "options": "Work Item Template"
+  },
+  {
+   "fieldname": "boq_item_desc",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_item_uom",
+   "fieldtype": "Data",
+   "label": "UOM",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_item_rate",
+   "fieldtype": "Currency",
+   "label": "Rate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_item_qunatity",
+   "fieldtype": "Float",
+   "label": "Quantity",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_item_amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "boq_rolled_item",
+   "fieldtype": "Currency",
+   "label": "Rolled Amount"
+  },
+  {
+   "fieldname": "lft",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Left",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "rgt",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Right",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "old_parent",
+   "fieldtype": "Link",
+   "label": "Old Parent",
+   "options": "Project Tender Template Item"
+  },
+  {
+   "fieldname": "parent_project_tender_template_item",
+   "fieldtype": "Link",
+   "label": "Parent Project Tender Template Item",
+   "options": "Project Tender Template Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_tree": 1,
+ "links": [],
+ "modified": "2026-08-14 14:32:11.298325",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Tender Template Item",
+ "nsm_parent_field": "parent_project_tender_template_item",
+ "owner": "tarek.elfar@friendsco.net",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

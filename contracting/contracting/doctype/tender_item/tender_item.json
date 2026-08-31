@@ -1,0 +1,147 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-07-15 12:59:50.545673",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "is_group",
+  "status",
+  "series",
+  "contracting_item_group",
+  "contracting_item",
+  "uom",
+  "qty",
+  "remaining_qty",
+  "rate",
+  "amount",
+  "description",
+  "costing_note",
+  "prevdoc_docname",
+  "tender_boq_item"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "is group"
+  },
+  {
+   "columns": 1,
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "label": "Status"
+  },
+  {
+   "columns": 1,
+   "fieldname": "series",
+   "fieldtype": "Read Only",
+   "in_list_view": 1,
+   "label": "series"
+  },
+  {
+   "columns": 1,
+   "fieldname": "contracting_item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Contracting item Group",
+   "options": "Item Group",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "contracting_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Contracting Item",
+   "options": "Item"
+  },
+  {
+   "columns": 1,
+   "fetch_from": "contracting_item.stock_uom",
+   "fieldname": "uom",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "UOM",
+   "mandatory_depends_on": "eval:doc.contracting_items",
+   "options": "UOM"
+  },
+  {
+   "columns": 1,
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "QTY",
+   "mandatory_depends_on": "eval:doc.contracting_items"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "costing_note",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Costing Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "prevdoc_docname",
+   "fieldtype": "Data",
+   "label": "prevdoc_docname"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Remaining Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "in_standard_filter": 1,
+   "label": "Description"
+  },
+  {
+   "description": "Which Tender BOQ line this allocation/invoice row is against - used for over-allocation checks on Subcontractor Contract and progress tracking.",
+   "fieldname": "tender_boq_item",
+   "fieldtype": "Link",
+   "label": "Tender BOQ Item",
+   "options": "Tender BOQ Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-08-22 00:11:29.952975",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Tender Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

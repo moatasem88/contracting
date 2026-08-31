@@ -1,0 +1,128 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-30 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "contract_item",
+  "payment_condition",
+  "condition_label",
+  "qty_allocated",
+  "cumulative_qty_complete",
+  "this_period_qty",
+  "percent_complete",
+  "rate",
+  "cumulative_amount",
+  "previously_invoiced_amount",
+  "this_period_amount",
+  "retention_amount",
+  "net_amount"
+ ],
+ "fields": [
+  {
+   "description": "The line of the Subcontractor Contract being claimed against.",
+   "fieldname": "contract_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Contract Item",
+   "options": "Contractor Contract Item",
+   "reqd": 1
+  },
+  {
+   "description": "Which of the contract's Payment Conditions (default or work-item override) this progress is claimed against.",
+   "fieldname": "payment_condition",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Payment Condition",
+   "options": "Contractor Contract Payment Condition",
+   "reqd": 1
+  },
+  {
+   "description": "Set explicitly on validate from the linked Payment Condition's own label - not a fetch_from, since core cannot resolve fetch_from against a Link that targets a child-table doctype.",
+   "fieldname": "condition_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Condition",
+   "read_only": 1
+  },
+  {
+   "description": "This condition's share of the line's allocated qty (Contract Item qty x Condition percent).",
+   "fieldname": "qty_allocated",
+   "fieldtype": "Float",
+   "label": "Qty Allocated",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cumulative_qty_complete",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Cumulative Qty Complete"
+  },
+  {
+   "fieldname": "this_period_qty",
+   "fieldtype": "Float",
+   "label": "This Period Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "percent_complete",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Percent Complete",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "label": "Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cumulative_amount",
+   "fieldtype": "Currency",
+   "label": "Cumulative Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "previously_invoiced_amount",
+   "fieldtype": "Currency",
+   "label": "Previously Invoiced Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "this_period_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "This Period Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Retention Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Amount",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-30 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Invoice Condition Progress",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

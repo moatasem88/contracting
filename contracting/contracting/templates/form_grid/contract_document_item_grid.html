@@ -1,0 +1,50 @@
+{% var visible_columns = row.get_visible_columns(["contracting_item", "description", "qty", "rate", "amount", "uom"]); %}
+
+{% if(!doc) { %}
+	<div class="row">
+		<div class="col-sm-6 col-xs-8">{%= __("Items") %}</div>
+		<div class="col-sm-2 hidden-xs text-right">{%= __("Qty") %}</div>
+		<div class="col-sm-2 hidden-xs text-right">{%= __("Rate") %}</div>
+		<div class="col-sm-2 col-xs-4 text-right">{%= __("Amount") %}</div>
+	</div>
+{% } else { %}
+	<div class="row">
+		<div class="col-sm-6 col-xs-8">
+			{% if(doc.contracting_item) { %}
+				<strong>{%= doc.contracting_item %}</strong>
+			{% } %}
+			{% include "templates/form_grid/includes/visible_cols.html" %}
+		</div>
+
+		<!-- qty -->
+		<div class="col-sm-2 hidden-xs text-right">
+			{%= doc.get_formatted("qty") %}
+			<span class="small">{%= doc.uom %}</span>
+		</div>
+
+		<!-- rate -->
+		<div class="col-sm-2 hidden-xs text-right">
+			{% if (!frappe.perm.is_visible("rate", doc, frm.perm)) { %}
+				<span class="text-muted">{%= __("hidden") %}</span>
+			{% } else { %}
+				{%= doc.get_formatted("rate") %}
+			{% } %}
+		</div>
+
+		<!-- amount -->
+		<div class="col-sm-2 col-xs-4 text-right">
+			{% if (!frappe.perm.is_visible("amount", doc, frm.perm)) { %}
+				<span class="text-muted">{%= __("hidden") %}</span>
+			{% } else { %}
+				{%= doc.get_formatted("amount") %}
+			{% } %}
+
+			{% if (frappe.perm.is_visible("rate", doc, frm.perm)) { %}
+			<div class="visible-xs text-muted">
+				{%= doc.get_formatted("qty") %} <small>{%= doc.uom %}</small>
+				x {%= doc.get_formatted("rate") %}
+			</div>
+			{% } %}
+		</div>
+	</div>
+{% } %}

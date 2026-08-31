@@ -1,0 +1,63 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-07-16 08:52:57.198911",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "addition_name",
+  "calculation_type",
+  "value",
+  "currency",
+  "applies_to_base_only"
+ ],
+ "fields": [
+  {
+   "fieldname": "addition_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Addition Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "calculation_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Calculation Type",
+   "options": "Percentage\nFixed Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "value",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Value"
+  },
+  {
+   "depends_on": "eval:doc.calculation_type=='Fixed Amount'",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "default": "0",
+   "fieldname": "applies_to_base_only",
+   "fieldtype": "Check",
+   "label": "Applies to Base Only"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-07-16 08:52:57.198911",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Work Item Template Addition",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,138 @@
+{
+ "actions": [],
+ "autoname": "autoincrement",
+ "creation": "2026-07-03 10:04:18.623390",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "boq_proj",
+  "boq_sourceitem",
+  "source_tender_boq_item",
+  "parent_item",
+  "item_num",
+  "proj_item_quantity",
+  "project_item_rate",
+  "adj_table",
+  "lft",
+  "rgt",
+  "is_group",
+  "old_parent",
+  "parent_project_boq_item"
+ ],
+ "fields": [
+  {
+   "fieldname": "boq_proj",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Project",
+   "options": "Project",
+   "reqd": 1
+  },
+  {
+   "fieldname": "boq_sourceitem",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Source Template Item",
+   "options": "Project Tender Template Item"
+  },
+  {
+   "fieldname": "source_tender_boq_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Source Tender BOQ Item",
+   "options": "Tender BOQ Item"
+  },
+  {
+   "fieldname": "parent_item",
+   "fieldtype": "Data",
+   "label": "Parent Item"
+  },
+  {
+   "fieldname": "item_num",
+   "fieldtype": "Data",
+   "label": "Item Number"
+  },
+  {
+   "fieldname": "proj_item_quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Project Quantity",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project_item_rate",
+   "fieldtype": "Currency",
+   "label": "Project Rate"
+  },
+  {
+   "fieldname": "adj_table",
+   "fieldtype": "Link",
+   "label": "Adjustments",
+   "options": "BOQ Item Adjustment"
+  },
+  {
+   "fieldname": "lft",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Left",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "rgt",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Right",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "label": "Is Group"
+  },
+  {
+   "fieldname": "old_parent",
+   "fieldtype": "Link",
+   "label": "Old Parent",
+   "options": "Project BOQ Item"
+  },
+  {
+   "fieldname": "parent_project_boq_item",
+   "fieldtype": "Link",
+   "label": "Parent Project BOQ Item",
+   "options": "Project BOQ Item"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_tree": 1,
+ "links": [],
+ "modified": "2026-08-14 14:31:17.449946",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project BOQ Item",
+ "naming_rule": "Autoincrement",
+ "nsm_parent_field": "parent_project_boq_item",
+ "owner": "tarek.elfar@friendsco.net",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
