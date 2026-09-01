@@ -24,8 +24,7 @@ def sync_tender_to_project_tenders(tender_doc):
 	frappe.db.set_value(
 		"Project Tender Direct Cost Detail",
 		{"tender": tender_doc.name},
-		"tender_total",
-		tender_doc.grand_total,
+		{"tender_total": tender_doc.tender_final_cost, "tender_sell_amount": tender_doc.sell_amount},
 		update_modified=False,
 	)
 

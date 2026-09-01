@@ -298,13 +298,20 @@ function recalculate_group_totals(frm) {
     // Roll each work item's cost up from its linked Material/Labor/
     // Equipment rows - Tender BOQ Item no longer carries its own rate.
     let totals_by_work_item = {};
+    let direct_by_work_item = {};
+    let safety_by_work_item = {};
+    let safety_multiplier = 1 + (frm.doc.safety_factor_percent || 0) / 100;
     RESOURCE_TABLES.forEach(fieldname => {
         (frm.doc[fieldname] || []).forEach(row => {
             totals_by_work_item[row.work_item] = (totals_by_work_item[row.work_item] || 0) + (row.amount || 0);
+            let direct = (row.qty || 0) * (row.rate || 0) * (row.exchange_rate || 1);
+            direct_by_work_item[row.work_item] = (direct_by_work_item[row.work_item] || 0) + direct;
+            safety_by_work_item[row.work_item] = (safety_by_work_item[row.work_item] || 0) + direct * (safety_multiplier - 1);
         });
     });
 
-    let subtotal = 0, total_vat = 0, total_adds = 0;
+    let indirect_multiplier = (frm.doc.propagated_addition_percent || 0) / 100;
+    let total_direct_cost = 0, total_additions = 0, total_safety_factor = 0, total_indirect_cost = 0;
     let has_priced_item = false;
     for (let r of items) {
         if (!r.is_group) {
@@ -315,10 +322,26 @@ function recalculate_group_totals(frm) {
             let effective_total = base + vat + other + fixed;
             r.total_amount = base;
             r.effective_unit_price = r.original_quantity ? effective_total / r.original_quantity : 0;
-            subtotal += base; total_vat += vat; total_adds += other + fixed;
 
             r.sell_rate = r.effective_unit_price * (1 + (r.margin_percent || 0) / 100);
             r.sell_amount = r.sell_rate * (r.original_quantity || 0);
+
+            // Direct Cost/Additions mirror tender.py::rollup_boq_costs() -
+            // computed against the raw material+labor+equipment sum, never
+            // against `base` above (already Safety-Factor/Indirect-Cost
+            // inclusive), so Direct Cost stays structurally free of
+            // Indirect Cost (2026-09-01 BRD).
+            let raw_direct = direct_by_work_item[r.idx] || 0;
+            let row_vat_amount = raw_direct * (r.vat_percentage || 0) / 100;
+            let row_additions_amount = raw_direct * (r.other_additions_pct || 0) / 100 + (r.fixed_additions || 0);
+            r.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount;
+            r.boq_safety_factor_amount = safety_by_work_item[r.idx] || 0;
+            r.boq_indirect_cost_amount = (r.boq_direct_cost + r.boq_safety_factor_amount) * indirect_multiplier;
+
+            total_direct_cost += r.boq_direct_cost;
+            total_additions += row_additions_amount;
+            total_safety_factor += r.boq_safety_factor_amount;
+            total_indirect_cost += r.boq_indirect_cost_amount;
 
             if (r.item_code && r.total_amount) has_priced_item = true;
         }
@@ -338,10 +361,13 @@ function recalculate_group_totals(frm) {
     // dirty just because the client recompute disagrees with a stale
     // server value.
     if (frm.doc.__islocal || frm.is_dirty()) {
-        frm.set_value('subtotal', subtotal);
-        frm.set_value('total_vat', total_vat);
-        frm.set_value('total_additions', total_adds);
-        frm.set_value('grand_total', subtotal + total_vat + total_adds);
+        let tender_final_cost = total_direct_cost + total_safety_factor;
+        frm.set_value('total_direct_cost', total_direct_cost);
+        frm.set_value('total_additions', total_additions);
+        frm.set_value('total_safety_factor', total_safety_factor);
+        frm.set_value('tender_final_cost', tender_final_cost);
+        frm.set_value('total_indirect_cost', total_indirect_cost);
+        frm.set_value('sell_amount', tender_final_cost + total_indirect_cost);
 
         // Non-authoritative UI hint only - the server (evaluate_auto_progress)
         // is what actually flips status on save. Never set the status field

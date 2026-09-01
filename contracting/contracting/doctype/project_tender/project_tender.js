@@ -1,4 +1,22 @@
 frappe.ui.form.on('Project Tender', {
+    setup(frm) {
+        // Live-tick from Tender's ~2s autosync while a linked Tender's BOQ
+        // is being edited - patches just the matching row's Tender Total,
+        // no reload. Distinct event name (not `doc_update`) so this never
+        // rides on core's global reload/conflict listener in model.js.
+        frappe.realtime.on('project_tender_direct_cost_tick', (data) => {
+            if (frm.doc.name !== data.project_tender) return;
+            let changed = false;
+            (frm.doc.direct_cost_details || []).forEach(row => {
+                if (row.tender === data.tender) {
+                    row.tender_total = data.tender_total;
+                    row.tender_sell_amount = data.tender_sell_amount;
+                    changed = true;
+                }
+            });
+            if (changed) frm.refresh_field('direct_cost_details');
+        });
+    },
     refresh(frm) {
         set_tender_query(frm);
         set_tender_status_formatter(frm);

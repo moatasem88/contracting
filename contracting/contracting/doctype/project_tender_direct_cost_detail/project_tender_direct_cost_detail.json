@@ -12,6 +12,7 @@
   "sales_order",
   "contract_document",
   "tender_total",
+  "tender_sell_amount",
   "tender_status",
   "percent_of_direct_cost",
   "percent_of_total_price"
@@ -66,7 +67,14 @@
    "fieldname": "tender_total",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Tender Total",
+   "label": "Tender Final Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tender_sell_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tender Sell Amount",
    "read_only": 1
   },
   {

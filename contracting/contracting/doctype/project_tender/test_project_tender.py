@@ -157,9 +157,9 @@ class TestIndirectCostAndCurrency(FrappeTestCase):
 		pushed_total = frappe.db.get_value(
 			"Project Tender Direct Cost Detail", {"tender": t.name}, "tender_total"
 		)
-		self.assertAlmostEqual(pushed_total, t.grand_total, delta=0.01)
+		self.assertAlmostEqual(pushed_total, t.tender_final_cost, delta=0.01)
 		self.assertAlmostEqual(
-			frappe.db.get_value("Project Tender", pt.name, "total_direct_cost"), t.grand_total, delta=0.01
+			frappe.db.get_value("Project Tender", pt.name, "total_direct_cost"), t.tender_final_cost, delta=0.01
 		)
 
 		# Prove one-pass convergence directly: a single Tender save must
@@ -276,6 +276,91 @@ class TestIndirectCostAndCurrency(FrappeTestCase):
 		self.assertEqual(empty_pt.indirect_cost_percent_of_total_price, 0)
 		self.assertEqual(empty_pt.overhead_deduction_percent_of_direct_cost, 0)
 		self.assertEqual(empty_pt.overhead_deduction_percent_of_total_price, 0)
+
+	def test_dc01_worked_example(self):
+		# Direct Cost restructure BRD (2026-09-01) TC-01: the full worked
+		# example - qty=10 x rate=100, safety_factor_percent=10, row
+		# vat_percentage=14/other_additions_pct=5/fixed_additions=50,
+		# propagated_addition_percent=20 (set directly here to isolate this
+		# from Project Tender's own calculation chain, already proven
+		# untouched by FR-11 in test_ic05_06_07 above).
+		pt = make_ic_project_tender("__dc01_project__")
+		t = make_ic_tender(pt.name, "__dc01_tender__", qty=10, rate=100, safety_factor_percent=10)
+		t.boq_items[0].vat_percentage = 14
+		t.boq_items[0].other_additions_pct = 5
+		t.boq_items[0].fixed_additions = 50
+		t.propagated_addition_percent = 20
+		t.save(ignore_permissions=True)
+
+		row = t.boq_items[0]
+		self.assertAlmostEqual(row.boq_direct_cost, 1240, delta=0.01)
+		self.assertAlmostEqual(row.boq_safety_factor_amount, 100, delta=0.01)
+		self.assertAlmostEqual(row.boq_indirect_cost_amount, 268, delta=0.01)
+
+		self.assertAlmostEqual(t.total_direct_cost, 1240, delta=0.01)
+		# BRD §12's worked-example table lists total_additions=200, but its
+		# own formula (§5's code snippet and FR-01/FR-04's prose, both VAT-
+		# excluded) computes raw_direct*other_additions_pct/100+fixed =
+		# 1000*5%+50 = 100 - a table-cell arithmetic slip, not a spec
+		# disagreement. 100 is what the formal spec (and this code) produce.
+		self.assertAlmostEqual(t.total_additions, 100, delta=0.01)
+		self.assertAlmostEqual(t.total_safety_factor, 100, delta=0.01)
+		self.assertAlmostEqual(t.tender_final_cost, 1340, delta=0.01)
+		self.assertAlmostEqual(t.total_indirect_cost, 268, delta=0.01)
+		self.assertAlmostEqual(t.sell_amount, 1608, delta=0.01)
+
+	def test_dc05_final_cost_immune_to_propagated_percent(self):
+		# TC-05: tender_final_cost (and everything it's built from) must not
+		# move when propagated_addition_percent changes - only
+		# total_indirect_cost/sell_amount should. This is the property that
+		# eliminates the self-reference described in the BRD's §2.
+		pt = make_ic_project_tender("__dc05_project__")
+		t = make_ic_tender(pt.name, "__dc05_tender__", qty=10, rate=100, safety_factor_percent=10)
+		t.boq_items[0].vat_percentage = 14
+		t.boq_items[0].other_additions_pct = 5
+		t.boq_items[0].fixed_additions = 50
+		t.propagated_addition_percent = 20
+		t.save(ignore_permissions=True)
+		self.assertAlmostEqual(t.tender_final_cost, 1340, delta=0.01)
+
+		t.propagated_addition_percent = 45
+		t.save(ignore_permissions=True)
+
+		self.assertAlmostEqual(t.total_direct_cost, 1240, delta=0.01)
+		self.assertAlmostEqual(t.total_safety_factor, 100, delta=0.01)
+		self.assertAlmostEqual(t.tender_final_cost, 1340, delta=0.01)
+		self.assertAlmostEqual(t.total_indirect_cost, 1340 * 0.45, delta=0.01)
+		self.assertAlmostEqual(t.sell_amount, 1340 * 1.45, delta=0.01)
+
+	def test_dc06_project_tender_convergence(self):
+		# TC-06: re-saving Tender -> Project Tender -> Tender must converge
+		# total_direct_cost/total_addition_percent to a stable value, not
+		# keep drifting on each additional save (the pre-fix behaviour the
+		# BRD's §2 diagnoses).
+		pt = make_ic_project_tender("__dc06_project__")
+		t = make_ic_tender(pt.name, "__dc06_tender__", qty=10, rate=100, safety_factor_percent=10)
+		pt.reload()
+		pt.append("direct_cost_details", {"tender": t.name})
+		pt.append("overhead_deduction_details", {
+			"cost_component": "Other Deductions", "calculation_type": "Fixed Amount", "amount": 1100 * 0.20,
+		})
+		pt.save(ignore_permissions=True)
+		t.reload()
+
+		first_direct_cost = frappe.db.get_value("Project Tender", pt.name, "total_direct_cost")
+		first_addition_percent = frappe.db.get_value("Project Tender", pt.name, "total_addition_percent")
+
+		t.save(ignore_permissions=True)
+		pt.reload()
+		pt.save(ignore_permissions=True)
+		t.reload()
+		t.save(ignore_permissions=True)
+
+		second_direct_cost = frappe.db.get_value("Project Tender", pt.name, "total_direct_cost")
+		second_addition_percent = frappe.db.get_value("Project Tender", pt.name, "total_addition_percent")
+
+		self.assertAlmostEqual(first_direct_cost, second_direct_cost, delta=0.01)
+		self.assertAlmostEqual(first_addition_percent, second_addition_percent, delta=0.01)
 
 
 class TestProjectTender(unittest.TestCase):

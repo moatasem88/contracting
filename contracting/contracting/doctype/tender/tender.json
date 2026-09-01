@@ -29,11 +29,13 @@
   "boq_section",
   "boq_items",
   "totals_section",
-  "subtotal",
-  "col_break_2",
-  "total_vat",
+  "total_direct_cost",
   "total_additions",
-  "grand_total",
+  "total_safety_factor",
+  "col_break_2",
+  "tender_final_cost",
+  "total_indirect_cost",
+  "sell_amount",
   "documents_section",
   "attachment_details",
   "material_tab",
@@ -186,19 +188,9 @@
    "label": "Totals"
   },
   {
-   "fieldname": "subtotal",
+   "fieldname": "total_direct_cost",
    "fieldtype": "Currency",
-   "label": "Subtotal",
-   "read_only": 1
-  },
-  {
-   "fieldname": "col_break_2",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "total_vat",
-   "fieldtype": "Currency",
-   "label": "Total VAT",
+   "label": "Total Direct Cost",
    "read_only": 1
   },
   {
@@ -208,10 +200,33 @@
    "read_only": 1
   },
   {
-   "bold": 1,
-   "fieldname": "grand_total",
+   "fieldname": "total_safety_factor",
    "fieldtype": "Currency",
-   "label": "Grand Total",
+   "label": "Total Safety Factor",
+   "read_only": 1
+  },
+  {
+   "fieldname": "col_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "bold": 1,
+   "fieldname": "tender_final_cost",
+   "fieldtype": "Currency",
+   "label": "Tender Final Cost",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_indirect_cost",
+   "fieldtype": "Currency",
+   "label": "Total Indirect Cost",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "sell_amount",
+   "fieldtype": "Currency",
+   "label": "Sell Amount",
    "read_only": 1
   },
   {

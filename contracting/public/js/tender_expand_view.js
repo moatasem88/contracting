@@ -83,10 +83,12 @@ frappe.ui.form.on('Tender', {
                     // hitting its own prior background write as a
                     // TimestampMismatchError.
                     frm.doc.modified = r.message.modified;
-                    frm.doc.subtotal = r.message.subtotal;
-                    frm.doc.total_vat = r.message.total_vat;
+                    frm.doc.total_direct_cost = r.message.total_direct_cost;
                     frm.doc.total_additions = r.message.total_additions;
-                    frm.doc.grand_total = r.message.grand_total;
+                    frm.doc.total_safety_factor = r.message.total_safety_factor;
+                    frm.doc.tender_final_cost = r.message.tender_final_cost;
+                    frm.doc.total_indirect_cost = r.message.total_indirect_cost;
+                    frm.doc.sell_amount = r.message.sell_amount;
                 }
             });
         }, AUTO_SYNC_SAVE_INTERVAL_MS);

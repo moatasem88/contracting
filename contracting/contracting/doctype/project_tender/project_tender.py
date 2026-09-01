@@ -65,7 +65,11 @@ class ProjectTender(Document):
 					)
 				)
 
-			row.tender_total = frappe.db.get_value("Tender", row.tender, "grand_total") or 0
+			tender_final_cost, tender_sell_amount = frappe.db.get_value(
+				"Tender", row.tender, ["tender_final_cost", "sell_amount"]
+			)
+			row.tender_total = tender_final_cost or 0
+			row.tender_sell_amount = tender_sell_amount or 0
 
 	def calculate_direct_cost(self):
 		self.total_direct_cost = sum(flt(row.tender_total) for row in self.direct_cost_details)

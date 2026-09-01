@@ -153,19 +153,20 @@ class Tender(Document):
 				)
 				layers = layer_totals_by_work_item.setdefault(
 					row.work_item,
-					{"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0, "indirect": 0.0},
+					{"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0},
 				)
 				layers[layer_key] += row.direct_cost_amount or 0
 				layers["safety"] += row.safety_factor_amount or 0
-				layers["indirect"] += row.indirect_cost_amount or 0
 
 		# Header totals must be authoritative here, not only in tender.js -
 		# tender.js's recompute on load previously diverged from whatever
-		# was last stored (these 4 fields were client-only), which marked
+		# was last stored (these fields were client-only), which marked
 		# the form dirty before the user touched anything.
-		subtotal = 0.0
-		total_vat = 0.0
+		total_direct_cost = 0.0
 		total_additions = 0.0
+		total_safety_factor = 0.0
+		total_indirect_cost = 0.0
+		indirect_multiplier = flt(self.propagated_addition_percent) / 100.0
 
 		for row in self.boq_items:
 			if row.is_group:
@@ -179,20 +180,38 @@ class Tender(Document):
 			row.effective_unit_price = (
 				effective_total / row.original_quantity if row.original_quantity else 0.0
 			)
-			subtotal += base_cost
-			total_vat += vat
-			total_additions += other + fixed
 
 			layers = layer_totals_by_work_item.get(
-				row.idx, {"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0, "indirect": 0.0}
+				row.idx, {"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0}
 			)
 			row.material_cost = layers["material"]
 			row.labor_cost = layers["labor"]
 			row.equipment_cost = layers["equipment"]
-			row.boq_direct_cost = layers["material"] + layers["labor"] + layers["equipment"]
+
+			# Direct Cost/Additions are computed against the raw material+
+			# labor+equipment sum (pre-Safety-Factor, pre-Indirect-Cost) -
+			# never against base_cost above, which already carries Safety
+			# Factor + Indirect Cost via the resource-row fold-in in
+			# calculate_resource_quantities(). This is what keeps Direct
+			# Cost structurally free of Indirect Cost, closing the
+			# self-reference described in the 2026-09-01 BRD.
+			raw_direct = layers["material"] + layers["labor"] + layers["equipment"]
+			row_vat_amount = raw_direct * (row.vat_percentage or 0) / 100.0
+			row_additions_amount = raw_direct * (row.other_additions_pct or 0) / 100.0 + (
+				row.fixed_additions or 0
+			)
+
+			row.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount
 			row.boq_safety_factor_amount = layers["safety"]
-			row.boq_indirect_cost_amount = layers["indirect"]
+			row_final_cost = row.boq_direct_cost + row.boq_safety_factor_amount
+			row.boq_indirect_cost_amount = row_final_cost * indirect_multiplier
 			row.indirect_cost_percent = self.propagated_addition_percent
+
+			total_direct_cost += row.boq_direct_cost
+			total_additions += row_additions_amount
+			total_safety_factor += row.boq_safety_factor_amount
+			total_indirect_cost += row.boq_indirect_cost_amount
+
 			if row.display_currency:
 				rate = self.resolve_exchange_rate(
 					row.display_currency, _("BOQ row #{0}").format(row.idx)
@@ -201,10 +220,12 @@ class Tender(Document):
 			else:
 				row.display_amount = 0.0
 
-		self.subtotal = subtotal
-		self.total_vat = total_vat
+		self.total_direct_cost = total_direct_cost
 		self.total_additions = total_additions
-		self.grand_total = subtotal + total_vat + total_additions
+		self.total_safety_factor = total_safety_factor
+		self.tender_final_cost = self.total_direct_cost + self.total_safety_factor
+		self.total_indirect_cost = total_indirect_cost
+		self.sell_amount = self.tender_final_cost + self.total_indirect_cost
 
 	def calculate_row_sell_pricing(self):
 		"""Per-BOQ-row sell price - still consumed directly by
@@ -282,7 +303,12 @@ def sync_live_edits(tender):
 	validate_currency_table, cross_sync, handle_won_automation) and any row
 	insert/delete - those stay on the checkpoint frm.save() path in
 	tender_expand_view.js so this can run every ~2s without freezing the UI or
-	re-running business logic that shouldn't fire on every keystroke.
+	re-running business logic that shouldn't fire on every keystroke. It does,
+	however, mirror tender_final_cost/sell_amount into any linked Project
+	Tender Direct Cost Detail rows (see _persist_live_edit_fields) - a
+	narrow push via db.set_value, not the full
+	cross_sync.sync_tender_to_project_tenders cascade (which still only
+	runs from a real checkpoint save's on_update).
 	"""
 	if isinstance(tender, str):
 		tender = json.loads(tender)
@@ -310,8 +336,12 @@ def sync_live_edits(tender):
 	saved.notify_update()
 	return {
 		"modified": saved.modified,
-		"subtotal": doc.subtotal, "total_vat": doc.total_vat,
-		"total_additions": doc.total_additions, "grand_total": doc.grand_total,
+		"total_direct_cost": doc.total_direct_cost,
+		"total_additions": doc.total_additions,
+		"total_safety_factor": doc.total_safety_factor,
+		"tender_final_cost": doc.tender_final_cost,
+		"total_indirect_cost": doc.total_indirect_cost,
+		"sell_amount": doc.sell_amount,
 	}
 
 
@@ -336,9 +366,51 @@ def _persist_live_edit_fields(doc, tender_name):
 
 	frappe.db.set_value(
 		"Tender", tender_name,
-		{"subtotal": doc.subtotal, "total_vat": doc.total_vat,
-			"total_additions": doc.total_additions, "grand_total": doc.grand_total},
+		{
+			"total_direct_cost": doc.total_direct_cost,
+			"total_additions": doc.total_additions,
+			"total_safety_factor": doc.total_safety_factor,
+			"tender_final_cost": doc.tender_final_cost,
+			"total_indirect_cost": doc.total_indirect_cost,
+			"sell_amount": doc.sell_amount,
+		},
 	)
+
+	# Mirror tender_final_cost/sell_amount into any linked Project Tender
+	# Direct Cost Detail rows and nudge open Project Tender forms - mirrors
+	# cross_sync.py's sync_tender_to_project_tenders (rows lookup + filtered
+	# db.set_value), but deliberately stops there: no frappe.get_doc/.save()
+	# on Project Tender, no update_modified, so this stays a lightweight
+	# per-tick write and never touches Project Tender's own modified
+	# timestamp.
+	rows = frappe.get_all(
+		"Project Tender Direct Cost Detail",
+		filters={"tender": tender_name},
+		fields=["name", "parent"],
+	)
+	if not rows:
+		return
+
+	frappe.db.set_value(
+		"Project Tender Direct Cost Detail",
+		{"tender": tender_name},
+		{"tender_total": doc.tender_final_cost, "tender_sell_amount": doc.sell_amount},
+		update_modified=False,
+	)
+
+	for parent in {r.parent for r in rows}:
+		frappe.publish_realtime(
+			"project_tender_direct_cost_tick",
+			{
+				"project_tender": parent,
+				"tender": tender_name,
+				"tender_total": doc.tender_final_cost,
+				"tender_sell_amount": doc.sell_amount,
+			},
+			doctype="Project Tender",
+			docname=parent,
+			after_commit=True,
+		)
 
 
 @frappe.whitelist()
