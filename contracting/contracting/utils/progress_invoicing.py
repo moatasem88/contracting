@@ -19,7 +19,71 @@ SOURCE_RATE_FIELD = {
 }
 
 
-def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_parent=None):
+def _get_prior_item_progress(own_doctype, link_field, source_name, exclude_name):
+	"""How much of `source_name` was already claimed by an earlier *Invoiced*
+	sibling of `own_doctype` - shared by compute_progress_invoice_items (at
+	save time) and get_item_progress_context (the live client-side lookup),
+	so the two can never drift on what "prior" means."""
+	prior = frappe.db.sql(
+		"""
+		select max(item.cumulative_qty_complete) as max_qty,
+		       coalesce(sum(item.this_period_amount), 0) as invoiced_amount
+		from `tab{child_dt} Item` item
+		inner join `tab{parent_dt}` parent_doc on parent_doc.name = item.parent
+		where item.{link_field} = %s and parent_doc.status = 'Invoiced' and parent_doc.name != %s
+		""".format(child_dt=own_doctype, parent_dt=own_doctype, link_field=link_field),
+		(source_name, exclude_name or ""),
+		as_dict=True,
+	)
+	prior = prior[0] if prior else frappe._dict()
+	return flt(prior.max_qty), flt(prior.invoiced_amount)
+
+
+def _get_prior_condition_progress(contract_item, payment_condition, exclude_name):
+	"""Condition Progress's own shape of the same lookup - grouped by
+	(contract_item, payment_condition) instead of just contract_item.
+	Contractor-Invoice-only (Client Progress Invoice has no condition_progress
+	table), so the child doctype is hardcoded rather than parametrized."""
+	prior = frappe.db.sql(
+		"""
+		select max(item.cumulative_qty_complete) as max_qty,
+		       coalesce(sum(item.this_period_amount), 0) as invoiced_amount
+		from `tabContractor Invoice Condition Progress` item
+		inner join `tabContractor Invoice` parent_doc on parent_doc.name = item.parent
+		where item.contract_item = %s and item.payment_condition = %s
+		  and parent_doc.status = 'Invoiced' and parent_doc.name != %s
+		""",
+		(contract_item, payment_condition, exclude_name or ""),
+		as_dict=True,
+	)
+	prior = prior[0] if prior else frappe._dict()
+	return flt(prior.max_qty), flt(prior.invoiced_amount)
+
+
+@frappe.whitelist()
+def get_contract_retention_rate(contract_name):
+	"""The contract's Retention charge row's rate, or 0 if it has none (or
+	no contract is linked yet) - the single source of truth every retention
+	figure (header total, per-line informational columns, live client-side
+	preview) now reads from, in place of the deleted
+	ContractorInvoice.retention_percent field."""
+	if not contract_name:
+		return 0.0
+
+	rate = frappe.db.get_value(
+		"Contractor Contract Charge",
+		{
+			"parent": contract_name,
+			"parenttype": "Subcontractor Contract",
+			"cost_category": "Retention",
+			"charge_type": "On Net Total",
+		},
+		"rate",
+	)
+	return flt(rate)
+
+
+def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_parent=None, retention_rate=None):
 	"""Shared validate() logic for Contractor Invoice and Client Progress
 	Invoice: both are a cumulative-percent-complete claim against the rows
 	of a source document - Subcontractor Contract's contracted_items
@@ -32,10 +96,18 @@ def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_pare
 	a line of it: the link fields point at child rows, whose names are opaque
 	hashes shared across every contract on the site, so a row from an
 	unrelated document is indistinguishable by eye and would otherwise be
-	billed against this one at that other document's qty and rate."""
+	billed against this one at that other document's qty and rate.
+
+	retention_rate is supplied by the caller rather than read off doc
+	directly: Contractor Invoice has no retention field of its own anymore
+	(it reads get_contract_retention_rate(contract) instead) while Client
+	Progress Invoice still has its own independent retention_percent field -
+	this function stays agnostic to which so the two callers can't drift
+	into reading the wrong source."""
 
 	link_field = SOURCE_LINK_FIELD[source_doctype]
 	rate_field = SOURCE_RATE_FIELD.get(source_doctype, "rate")
+	retention_rate = flt(retention_rate) if retention_rate is not None else 0.0
 	total_this_period = 0.0
 	total_retention = 0.0
 
@@ -62,20 +134,9 @@ def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_pare
 				)
 			)
 
-		prior = frappe.db.sql(
-			"""
-			select max(item.cumulative_qty_complete) as max_qty,
-			       coalesce(sum(item.this_period_amount), 0) as invoiced_amount
-			from `tab{child_dt} Item` item
-			inner join `tab{parent_dt}` parent_doc on parent_doc.name = item.parent
-			where item.{link_field} = %s and parent_doc.status = 'Invoiced' and parent_doc.name != %s
-			""".format(child_dt=own_doctype, parent_dt=own_doctype, link_field=link_field),
-			(source_name, doc.name or ""),
-			as_dict=True,
+		prior_max_qty, prior_invoiced_amount = _get_prior_item_progress(
+			own_doctype, link_field, source_name, doc.name
 		)
-		prior = prior[0] if prior else frappe._dict()
-		prior_max_qty = prior.max_qty or 0
-		prior_invoiced_amount = prior.invoiced_amount or 0
 
 		if row.cumulative_qty_complete + 1e-6 < prior_max_qty:
 			frappe.throw(
@@ -87,10 +148,11 @@ def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_pare
 
 		row.percent_complete = (row.cumulative_qty_complete / ti.qty * 100.0) if ti.qty else 0.0
 		cumulative_amount = row.cumulative_qty_complete * row.rate
+		row.cumulative_amount = cumulative_amount
 		row.this_period_qty = row.cumulative_qty_complete - prior_max_qty
 		row.previously_invoiced_amount = prior_invoiced_amount
 		row.this_period_amount = cumulative_amount - prior_invoiced_amount
-		row.retention_amount = row.this_period_amount * (doc.retention_percent or 0) / 100.0
+		row.retention_amount = row.this_period_amount * retention_rate / 100.0
 		row.net_amount = row.this_period_amount - row.retention_amount
 
 		total_this_period += row.this_period_amount
@@ -119,6 +181,55 @@ def get_invoiced_qty_for_work_item(work_item):
 	)[0][0])
 
 
+@frappe.whitelist()
+def get_item_progress_context(contract_item, own_doctype, doc_name=None):
+	"""Live client-side counterpart to compute_progress_invoice_items's
+	per-row lookups: everything contractor_invoice.js needs to know before
+	it can derive cumulative_qty_complete/percent_complete/this_period_qty
+	from one another and recompute amounts, without waiting for a save."""
+	ci = frappe.db.get_value("Contractor Contract Item", contract_item, ["qty", "unit_price"], as_dict=True)
+	if not ci:
+		frappe.throw(_("Invalid Contractor Contract Item reference: {0}").format(contract_item))
+
+	prior_max_qty, prior_invoiced_amount = _get_prior_item_progress(
+		own_doctype, SOURCE_LINK_FIELD["Contractor Contract Item"], contract_item, doc_name
+	)
+	return {
+		"qty_allocated": ci.qty or 0,
+		"rate": ci.unit_price or 0,
+		"prior_max_qty": prior_max_qty,
+		"prior_invoiced_amount": prior_invoiced_amount,
+	}
+
+
+@frappe.whitelist()
+def get_condition_progress_context(contract_item, payment_condition, doc_name=None):
+	"""Condition Progress's counterpart to get_item_progress_context - the
+	ceiling is this condition's percent share of the line's allocated qty,
+	not the full line qty (mirrors compute_condition_progress_invoice)."""
+	ci = frappe.db.get_value("Contractor Contract Item", contract_item, ["qty", "unit_price"], as_dict=True)
+	if not ci:
+		frappe.throw(_("Invalid Contractor Contract Item reference: {0}").format(contract_item))
+
+	condition = frappe.db.get_value(
+		"Contractor Contract Payment Condition", payment_condition, ["condition", "percent"], as_dict=True
+	)
+	if not condition:
+		frappe.throw(_("Invalid Payment Condition reference: {0}").format(payment_condition))
+
+	qty_allocated = flt(ci.qty) * flt(condition.percent) / 100.0
+	prior_max_qty, prior_invoiced_amount = _get_prior_condition_progress(
+		contract_item, payment_condition, doc_name
+	)
+	return {
+		"qty_allocated": qty_allocated,
+		"rate": ci.unit_price or 0,
+		"prior_max_qty": prior_max_qty,
+		"prior_invoiced_amount": prior_invoiced_amount,
+		"condition_label": condition.condition,
+	}
+
+
 def compute_condition_progress_invoice(doc):
 	"""FR-25-33: condition-based progress invoicing.
 
@@ -132,7 +243,13 @@ def compute_condition_progress_invoice(doc):
 	matching condition_progress rows per contract_item (FR-29) - it is not
 	independently validated here, since the source of truth has moved to
 	condition_progress.
+
+	Contractor-Invoice-only (Client Progress Invoice has no condition_progress
+	table), so - unlike compute_progress_invoice_items - this resolves its
+	own retention rate directly rather than taking it as a parameter; there
+	is no second caller for a parameter to disambiguate between.
 	"""
+	retention_rate = get_contract_retention_rate(doc.contractor_contract)
 	total_this_period = 0.0
 	total_retention = 0.0
 	rollups = {}
@@ -173,21 +290,9 @@ def compute_condition_progress_invoice(doc):
 				  "allocated quantity ({2}).").format(row.idx, row.cumulative_qty_complete, row.qty_allocated)
 			)
 
-		prior = frappe.db.sql(
-			"""
-			select max(item.cumulative_qty_complete) as max_qty,
-			       coalesce(sum(item.this_period_amount), 0) as invoiced_amount
-			from `tabContractor Invoice Condition Progress` item
-			inner join `tabContractor Invoice` parent_doc on parent_doc.name = item.parent
-			where item.contract_item = %s and item.payment_condition = %s
-			  and parent_doc.status = 'Invoiced' and parent_doc.name != %s
-			""",
-			(row.contract_item, row.payment_condition, doc.name or ""),
-			as_dict=True,
+		prior_max_qty, prior_invoiced_amount = _get_prior_condition_progress(
+			row.contract_item, row.payment_condition, doc.name
 		)
-		prior = prior[0] if prior else frappe._dict()
-		prior_max_qty = prior.max_qty or 0
-		prior_invoiced_amount = prior.invoiced_amount or 0
 
 		if row.cumulative_qty_complete + 1e-6 < prior_max_qty:
 			frappe.throw(
@@ -204,7 +309,7 @@ def compute_condition_progress_invoice(doc):
 		row.this_period_qty = row.cumulative_qty_complete - prior_max_qty
 		row.previously_invoiced_amount = prior_invoiced_amount
 		row.this_period_amount = cumulative_amount - prior_invoiced_amount
-		row.retention_amount = row.this_period_amount * (doc.retention_percent or 0) / 100.0
+		row.retention_amount = row.this_period_amount * retention_rate / 100.0
 		row.net_amount = row.this_period_amount - row.retention_amount
 		row.cumulative_amount = cumulative_amount
 

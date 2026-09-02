@@ -277,6 +277,9 @@ standard_queries = {
 	"Tender Equipment Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Material Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Payment Condition": "contracting.contracting.api.link.child_row_query",
+	"Contractor Contract Material Item": "contracting.contracting.api.link.child_row_query",
+	"Contractor Contract Labor Item": "contracting.contracting.api.link.child_row_query",
+	"Contractor Contract Equipment Item": "contracting.contracting.api.link.child_row_query",
 }
 
 #

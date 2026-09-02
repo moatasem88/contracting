@@ -2,17 +2,17 @@ import frappe
 import erpnext
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import today
+from frappe.utils import cint, flt, today
 
 from contracting.contracting.utils.progress_invoicing import (
 	compute_condition_progress_invoice,
 	compute_progress_invoice_items,
+	get_contract_retention_rate,
 )
 
 
 class ContractorInvoice(Document):
 	def validate(self):
-		self.set_retention_from_contract()
 		if self.contractor_contract and frappe.db.exists(
 			"Contractor Contract Payment Condition", {"parent": self.contractor_contract}
 		):
@@ -27,38 +27,97 @@ class ContractorInvoice(Document):
 				"Contractor Invoice",
 				source_doctype="Contractor Contract Item",
 				source_parent=self.contractor_contract,
+				retention_rate=get_contract_retention_rate(self.contractor_contract),
 			)
-		self.net_payable = self.total_this_period - self.total_retention_held
+		self.rebuild_additional_costs()
+		self.net_payable = self.total_this_period + self.total_additional_charges
 
-	def set_retention_from_contract(self):
-		"""The contract's Retention charge row is the source of truth.
+	def rebuild_additional_costs(self):
+		"""FR-08/09/10/12: additional_costs is fully rebuilt from the linked
+		contract's own Additional Costs on every validate(), never held as a
+		stale snapshot - every row, Retention included, is mirrored and
+		reduced to this invoice's share of the contract:
+		total_this_period / net_total. total_retention_held is then rolled
+		up from whichever mirrored row(s) carry cost_category == "Retention",
+		rather than being accumulated separately inside
+		compute_progress_invoice_items/compute_condition_progress_invoice.
 
-		Retention is agreed once, on the Subcontractor Contract's Additional
-		Costs table (at most one Retention row is enforced there), so it is
-		read from the contract rather than re-entered per invoice and left to
-		drift. A flat-amount retention has no percentage to carry over, so
-		that case is left alone for the invoice to handle on its own terms.
-
-		The contract may legitimately carry no Retention row at all - Additional
-		Costs is optional - in which case there is nothing to carry over and
-		retention_percent is left as-is (0, i.e. nothing withheld).
+		The cascade below mirrors SubcontractorContract._compute_charge_amount
+		but keyed to total_this_period instead of net_total as the base, so a
+		charge type referencing an earlier row (On Previous Row Amount/Total)
+		resolves against this invoice's own prorated copy of that row, not
+		the contract's.
 		"""
+		self.set("additional_costs", [])
+		self.total_additional_charges = 0.0
+		self.total_retention_held = 0.0
 		if not self.contractor_contract:
 			return
 
-		retention = frappe.db.get_value(
-			"Contractor Contract Charge",
-			{
-				"parent": self.contractor_contract,
-				"parenttype": "Subcontractor Contract",
-				"charge_type": "Retention",
-				"rate_type": "% of Net Total",
-			},
-			"rate_or_amount",
+		contract = frappe.get_doc("Subcontractor Contract", self.contractor_contract)
+		net_total = flt(contract.net_total)
+		ratio = flt(self.total_this_period) / net_total if net_total else 0.0
+
+		source_rows = list(contract.additional_costs)
+		by_idx = {r.idx: r for r in source_rows}
+		computed = {}
+		running_total = 0.0
+
+		for row in source_rows:
+			amount = self._prorated_charge_amount(row, ratio, contract, by_idx, computed)
+			signed = -amount if row.add_deduct_tax == "Deduct" else amount
+			running_total += signed
+			computed[row.idx] = {"tax_amount": amount, "total": running_total}
+
+			self.append("additional_costs", {
+				"cost_category": row.cost_category,
+				"charge_type": row.charge_type,
+				"category": row.category,
+				"account_head": row.account_head,
+				"cost_center": row.cost_center,
+				"rate": row.rate,
+				"tax_amount": amount,
+				"add_deduct_tax": row.add_deduct_tax,
+				"total": running_total,
+				"description": row.description,
+				"source_charge": row.name,
+			})
+
+		self.total_additional_charges = running_total
+		self.total_retention_held = sum(
+			flt(r.tax_amount) for r in self.additional_costs if r.cost_category == "Retention"
 		)
 
-		if retention is not None:
-			self.retention_percent = retention
+	def _prorated_charge_amount(self, row, ratio, contract, by_idx, computed):
+		charge_type = row.charge_type or "On Net Total"
+
+		if charge_type == "Actual":
+			return flt(row.tax_amount) * ratio
+		if charge_type == "On Net Total":
+			return flt(self.total_this_period) * flt(row.rate) / 100.0
+		if charge_type in ("On Previous Row Amount", "On Previous Row Total"):
+			ref_idx = cint(row.row_id)
+			if not ref_idx or ref_idx not in by_idx:
+				frappe.throw(
+					_("Row referencing charge #{0} ({1}): its Reference Row # {2} is not on this "
+					  "invoice - Additional Costs rows must be ordered so a referencing row's target "
+					  "is included and comes before it.").format(
+						row.idx, row.description or row.cost_category, row.row_id
+					)
+				)
+			ref = computed.get(ref_idx)
+			if not ref:
+				frappe.throw(
+					_("Row {0}: Reference Row # {1} has not been computed yet - Additional Costs "
+					  "rows must be ordered so a row only references an earlier one.").format(row.idx, row.row_id)
+				)
+			base = ref["tax_amount"] if charge_type == "On Previous Row Amount" else ref["total"]
+			return base * flt(row.rate) / 100.0
+		if charge_type == "On Item Quantity":
+			total_qty = sum(flt(r.qty) for r in contract.contracted_items)
+			return flt(row.rate) * total_qty * ratio
+
+		frappe.throw(_("Row {0}: unrecognised Charge Type {1}.").format(row.idx, charge_type))
 
 	def mark_as_measured(self):
 		self.status = "Measured"
@@ -172,6 +231,22 @@ def create_purchase_invoice(contractor_invoice):
 			"expense_account": default_expense_account,
 			"cost_center": pi.cost_center,
 			"custom_project_work_item": project_boq_item,
+		})
+
+	# FR-11: Additional Costs already computed onto this invoice
+	# (rebuild_additional_costs) carry straight into the PI's own native
+	# taxes table - CustomPurchaseInvoice.make_tax_gl_entries already knows
+	# how to post GL entries from exactly these field names.
+	for row in contractor_invoice.additional_costs:
+		pi.append("taxes", {
+			"charge_type": row.charge_type,
+			"account_head": row.account_head,
+			"category": row.category,
+			"add_deduct_tax": row.add_deduct_tax,
+			"rate": row.rate,
+			"tax_amount": row.tax_amount,
+			"description": row.description,
+			"cost_center": row.cost_center or pi.cost_center,
 		})
 
 	pi.run_method("set_missing_values")

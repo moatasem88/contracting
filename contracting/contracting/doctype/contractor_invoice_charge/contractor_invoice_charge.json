@@ -1,67 +1,53 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2026-08-17 10:00:00.000000",
+ "creation": "2026-09-01 10:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "tax_charge_type",
   "cost_category",
   "charge_type",
   "category",
   "description",
-  "row_id",
   "account_head",
   "cost_center",
   "rate",
   "tax_amount",
   "add_deduct_tax",
-  "total"
+  "total",
+  "source_charge"
  ],
  "fields": [
-  {
-   "fieldname": "tax_charge_type",
-   "fieldtype": "Link",
-   "label": "Tax / Charge Type",
-   "options": "Tax and Charge Type"
-  },
   {
    "fieldname": "cost_category",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Cost Category",
    "options": "Tax\nCharge\nRetention\nMaterial Supplied by Company (Manual Fallback)",
-   "reqd": 1
+   "read_only": 1
   },
   {
-   "default": "On Net Total",
    "fieldname": "charge_type",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Charge Type",
    "options": "\nActual\nOn Net Total\nOn Previous Row Amount\nOn Previous Row Total\nOn Item Quantity",
-   "reqd": 1
+   "read_only": 1
   },
   {
-   "default": "Total",
    "fieldname": "category",
    "fieldtype": "Select",
    "label": "Category",
    "options": "Valuation and Total\nValuation\nTotal",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "description",
    "fieldtype": "Small Text",
    "in_list_view": 1,
-   "label": "Description"
-  },
-  {
-   "description": "Only meaningful when Charge Type is On Previous Row Amount/Total.",
-   "fieldname": "row_id",
-   "fieldtype": "Data",
-   "label": "Reference Row #"
+   "label": "Description",
+   "read_only": 1
   },
   {
    "fieldname": "account_head",
@@ -69,41 +55,47 @@
    "in_list_view": 1,
    "label": "Account Head",
    "options": "Account",
-   "reqd": 1
+   "read_only": 1
   },
   {
-   "description": "Falls back to the generated Purchase Invoice's own default cost center if left blank.",
    "fieldname": "cost_center",
    "fieldtype": "Link",
    "label": "Cost Center",
-   "options": "Cost Center"
+   "options": "Cost Center",
+   "read_only": 1
   },
   {
-   "description": "Percent, when Charge Type is a percentage-style type.",
    "fieldname": "rate",
    "fieldtype": "Float",
-   "label": "Rate"
+   "label": "Rate",
+   "read_only": 1
   },
   {
    "fieldname": "tax_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Tax Amount"
+   "label": "Tax Amount",
+   "read_only": 1
   },
   {
-   "default": "Add",
    "fieldname": "add_deduct_tax",
    "fieldtype": "Select",
-   "in_list_view": 1,
    "label": "Add or Deduct",
    "options": "Add\nDeduct",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "total",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_charge",
+   "fieldtype": "Link",
+   "label": "Source Charge",
+   "options": "Contractor Contract Charge",
    "read_only": 1
   }
  ],
@@ -113,7 +105,7 @@
  "modified": "2026-09-01 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
- "name": "Contractor Contract Charge",
+ "name": "Contractor Invoice Charge",
  "owner": "Administrator",
  "permissions": [],
  "sort_field": "modified",

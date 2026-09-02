@@ -17,6 +17,7 @@ class Tender(Document):
 	def validate(self):
 		self.validate_not_complete_locked()
 		self.validate_currency_table()
+		self.prune_orphaned_resource_rows()
 		self.calculate_resource_quantities()
 		self.rollup_boq_costs()
 		self.evaluate_auto_progress()
@@ -45,6 +46,29 @@ class Tender(Document):
 				_("This Tender is Complete and can no longer be edited. Use Create Revised Version to re-bid."),
 				title=_("Tender Complete"),
 			)
+
+	def prune_orphaned_resource_rows(self):
+		"""FR-T-01: cascade-delete. A resource row whose BOQ row is gone is
+		orphaned - drop it. Matched by boq_row_id first (stable across BOQ
+		reordering, and already populated on every row by
+		calculate_resource_quantities), work_item (idx) fallback for rows
+		predating that backfill.
+
+		The client mirrors this immediately on row removal (tender.js), so
+		this normally only confirms what the grid already did. It is what
+		actually guarantees the rule under the API and Data Import, which
+		bypass the client entirely.
+		"""
+		surviving_names = {row.name for row in self.boq_items}
+		surviving_idx = {row.idx for row in self.boq_items}
+		for fieldname in RESOURCE_TABLE_FIELDS:
+			rows = self.get(fieldname)
+			kept = [
+				row for row in rows
+				if (row.boq_row_id in surviving_names if row.boq_row_id else row.work_item in surviving_idx)
+			]
+			if len(kept) != len(rows):
+				self.set(fieldname, kept)
 
 	def evaluate_auto_progress(self):
 		"""Draft -> In Progress fires automatically once any real work item
@@ -173,13 +197,6 @@ class Tender(Document):
 				continue
 			base_cost = totals_by_work_item.get(row.idx, 0.0)
 			row.total_amount = base_cost
-			vat = base_cost * (row.vat_percentage or 0) / 100.0
-			other = base_cost * (row.other_additions_pct or 0) / 100.0
-			fixed = row.fixed_additions or 0
-			effective_total = base_cost + vat + other + fixed
-			row.effective_unit_price = (
-				effective_total / row.original_quantity if row.original_quantity else 0.0
-			)
 
 			layers = layer_totals_by_work_item.get(
 				row.idx, {"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0}
@@ -206,6 +223,17 @@ class Tender(Document):
 			row_final_cost = row.boq_direct_cost + row.boq_safety_factor_amount
 			row.boq_indirect_cost_amount = row_final_cost * indirect_multiplier
 			row.indirect_cost_percent = self.propagated_addition_percent
+
+			# Sales-Order-facing Sell Amount is priced off this same Direct+
+			# Safety+Indirect breakdown (not off base_cost, whose only
+			# indirect cost was the resource-row fold-in applied before this
+			# row's own VAT/Additions) - so the row's own indirect cost
+			# actually reaches what gets sold, without touching how the
+			# header totals above are summed.
+			effective_total = row_final_cost + row.boq_indirect_cost_amount
+			row.effective_unit_price = (
+				effective_total / row.original_quantity if row.original_quantity else 0.0
+			)
 
 			total_direct_cost += row.boq_direct_cost
 			total_additions += row_additions_amount
@@ -267,6 +295,7 @@ def preview_resource_totals(tender):
 
 LIVE_SYNC_FIELDS = {
 	"Tender BOQ Item": (
+		"description",
 		"vat_percentage", "other_additions_pct", "fixed_additions", "margin_percent",
 		"original_quantity", "display_currency",
 		"total_amount", "effective_unit_price", "sell_rate", "sell_amount",

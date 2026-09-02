@@ -21,6 +21,11 @@ class ClientProgressInvoice(Document):
 			# supports checking rows against a single parent, and a
 			# project-mode claim legitimately spans several.
 			source_parent=None if self.project else (self.sales_order or self.contract_document),
+			# Client Progress Invoice keeps its own independent retention
+			# field - contracting.utils.progress_invoicing.get_contract_
+			# retention_rate is Contractor-Invoice-only (there's no
+			# Subcontractor Contract in this doctype's ancestry).
+			retention_rate=self.retention_percent,
 		)
 		self.net_receivable = self.total_this_period - self.total_retention_held
 

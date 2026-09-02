@@ -1,5 +1,25 @@
 const RESOURCE_TABLES = ['material_items', 'labor_items', 'equipment_items'];
 
+// FR-T-01: cascade-delete. Removing a BOQ row orphans any Material/Labor/
+// Equipment rows that pointed at it - drop them from the grids immediately
+// rather than waiting for save to notice (tender.py's
+// prune_orphaned_resource_rows is the server-side guarantee for API/Data
+// Import paths this can't reach). Matched by boq_row_id first, work_item
+// (idx) fallback - same shape as subcontractor_contract.js's own
+// prune_orphaned_resource_rows.
+function prune_orphaned_boq_resource_rows(frm) {
+    const surviving_names = new Set((frm.doc.boq_items || []).map(r => r.name));
+    const surviving_idx = new Set((frm.doc.boq_items || []).map(r => r.idx));
+    RESOURCE_TABLES.forEach(fieldname => {
+        const rows = frm.doc[fieldname] || [];
+        const kept = rows.filter(r => r.boq_row_id ? surviving_names.has(r.boq_row_id) : surviving_idx.has(r.work_item));
+        if (kept.length !== rows.length) {
+            frm.set_value(fieldname, kept);
+            frm.refresh_field(fieldname);
+        }
+    });
+}
+
 frappe.ui.form.on('Tender', {
     setup(frm) {
         set_resource_queries(frm);
@@ -68,7 +88,7 @@ frappe.ui.form.on('Tender', {
             .forEach(f => make_grid_filter_toggle(f.grid));
     },
     boq_items_add(frm) { recalculate_group_totals(frm); },
-    boq_items_remove(frm) { recalculate_group_totals(frm); },
+    boq_items_remove(frm) { prune_orphaned_boq_resource_rows(frm); recalculate_group_totals(frm); },
     safety_factor_percent(frm) { recalculate_group_totals(frm); refresh_new_field_preview(frm); }
 });
 
@@ -284,10 +304,29 @@ function recalc_resources_for_work_item(frm, work_item_row) {
 function propagate_pricing_fields(frm, fieldname, changed_row, fields_to_sync) {
     if (!changed_row.item) return;
     (frm.doc[fieldname] || []).forEach(row => {
-        if (row.name !== changed_row.name && row.item === changed_row.item) {
-            fields_to_sync.forEach(f => { row[f] = changed_row[f]; });
-            row.amount = resource_amount(frm, row);
-        }
+        if (row.name === changed_row.name || row.item !== changed_row.item) return;
+        let changed_fields = fields_to_sync.filter(f => row[f] !== changed_row[f]);
+        if (!changed_fields.length) return;
+        changed_fields.forEach(f => { row[f] = changed_row[f]; });
+        row.amount = resource_amount(frm, row);
+        // Direct mutation above is what lets every same-item row converge
+        // without recursing through the rate/currency handlers below on
+        // every sibling - but it's therefore invisible to Frappe's model
+        // layer, so nothing marks the row dirty or schedules
+        // tender_expand_view.js's ~2s background auto-sync for it (only the
+        // row the user actually typed into gets that natively). Without
+        // this, the propagated value only ever reaches the server via a
+        // real frm.save() (the 8s idle checkpoint) - and any realtime
+        // doc_update-triggered reload landing before that checkpoint pulls
+        // the untouched DB value back over the top, which is what "changes
+        // propagate then revert a moment later" actually was. Replaying
+        // frappe.model.trigger for the fields that actually changed
+        // restores those side effects (dirty flag, sync scheduling). This
+        // re-enters this same function (siblings triggering each other),
+        // but the changed_fields check above means every row is already at
+        // its target value by its second visit, so the cascade always
+        // terminates instead of looping.
+        changed_fields.forEach(f => frappe.model.trigger(f, row[f], row));
     });
     frm.refresh_field(fieldname);
 }
@@ -316,15 +355,7 @@ function recalculate_group_totals(frm) {
     for (let r of items) {
         if (!r.is_group) {
             let base = totals_by_work_item[r.idx] || 0;
-            let vat = base * (r.vat_percentage || 0) / 100;
-            let other = base * (r.other_additions_pct || 0) / 100;
-            let fixed = (r.fixed_additions || 0);
-            let effective_total = base + vat + other + fixed;
             r.total_amount = base;
-            r.effective_unit_price = r.original_quantity ? effective_total / r.original_quantity : 0;
-
-            r.sell_rate = r.effective_unit_price * (1 + (r.margin_percent || 0) / 100);
-            r.sell_amount = r.sell_rate * (r.original_quantity || 0);
 
             // Direct Cost/Additions mirror tender.py::rollup_boq_costs() -
             // computed against the raw material+labor+equipment sum, never
@@ -336,7 +367,18 @@ function recalculate_group_totals(frm) {
             let row_additions_amount = raw_direct * (r.other_additions_pct || 0) / 100 + (r.fixed_additions || 0);
             r.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount;
             r.boq_safety_factor_amount = safety_by_work_item[r.idx] || 0;
-            r.boq_indirect_cost_amount = (r.boq_direct_cost + r.boq_safety_factor_amount) * indirect_multiplier;
+            let row_final_cost = r.boq_direct_cost + r.boq_safety_factor_amount;
+            r.boq_indirect_cost_amount = row_final_cost * indirect_multiplier;
+
+            // Sales-Order-facing Sell Amount is priced off this same Direct+
+            // Safety+Indirect breakdown (not off `base`, whose only indirect
+            // cost was the resource-row fold-in applied before this row's
+            // own VAT/Additions) - so the row's own indirect cost actually
+            // reaches what gets sold.
+            let effective_total = row_final_cost + r.boq_indirect_cost_amount;
+            r.effective_unit_price = r.original_quantity ? effective_total / r.original_quantity : 0;
+            r.sell_rate = r.effective_unit_price * (1 + (r.margin_percent || 0) / 100);
+            r.sell_amount = r.sell_rate * (r.original_quantity || 0);
 
             total_direct_cost += r.boq_direct_cost;
             total_additions += row_additions_amount;

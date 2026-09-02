@@ -1,5 +1,6 @@
 const ALLOCATION = 'contracting.contracting.utils.allocation';
 const PROGRESS_INVOICING = 'contracting.contracting.utils.progress_invoicing';
+const LINK = 'contracting.contracting.api.link';
 const LABOR_TYPES = ['Installing'];
 
 function is_material_type(frm) {
@@ -71,46 +72,56 @@ frappe.ui.form.on('Subcontractor Contract', {
 				filters: { work_item: locals[cdt][cdn].work_item },
 			}));
 		});
+
+		// FR-16: Payment Conditions' work_item picker scoped to what's
+		// actually contracted, not every Tender BOQ Item on site. Values
+		// come straight off frm.doc (client-side), so this works even on an
+		// unsaved contract.
+		frm.set_query('work_item', 'payment_conditions', () => ({
+			query: `${LINK}.child_row_query`,
+			filters: { name: ['in', (frm.doc.contracted_items || []).map((r) => r.work_item).filter(Boolean)] },
+		}));
+
+		// FR-13: resource pickers scoped to this contract's own resource-tab
+		// rows, further filtered by the row's own work_item if one is set.
+		// NOTE: child_row_query is a server-side query against
+		// tabContractor Contract Material/Labor/Equipment Item - unlike
+		// work_item above, these rows only exist once the contract has been
+		// saved at least once, so these 3 pickers are empty on a brand-new
+		// unsaved contract until the first save.
+		['material_item', 'labor_item', 'equipment_item'].forEach((fieldname) => {
+			frm.set_query(fieldname, 'payment_conditions', (doc, cdt, cdn) => {
+				const row = locals[cdt][cdn];
+				const filters = { parent: frm.doc.name };
+				if (row.work_item) filters.work_item = row.work_item;
+				return { query: `${LINK}.child_row_query`, filters };
+			});
+		});
 	},
 
 	refresh(frm) {
 		frm.toggle_display('items_subcontracted', (frm.doc.items_subcontracted || []).length > 0);
 		setup_buttons(frm);
+		refresh_payment_condition_category_options(frm);
+
+		// FR-SC-08: dialog-only entry. Direct grid "Add Row" bypasses the
+		// dialog's availability/description/item_code lookups and (until
+		// save) the work-item-membership check - same pattern already live
+		// on tender.js's boq_items grid.
+		frm.fields_dict.contracted_items.grid.cannot_add_rows = true;
+		frm.fields_dict.contracted_items.grid.setup_toolbar();
+		frm.set_df_property('contracted_items', 'read_only', 1, frm.doc.name, 'work_item');
 	},
 
 	project(frm) {
-		// FR-01, extended: Project Tenders follows the project - clear it
-		// out so a stale list can't linger while the project is being
-		// changed. Goes through the server (not a plain frappe.db.get_value
-		// on Project.tender) since newer projects only carry their
-		// Tender(s) via Project Tender - get_project_tenders_for_project
-		// resolves both shapes the same way set_project_tenders does
-		// server-side, and can return more than one Tender.
-		frm.clear_table('project_tenders');
-		frm.refresh_field('project_tenders');
-		if (!frm.doc.project) {
-			setup_buttons(frm);
-			return;
-		}
+		refresh_project_tenders(frm);
+	},
 
-		frappe.call({
-			method: 'contracting.contracting.doctype.subcontractor_contract.subcontractor_contract.get_project_tenders_for_project',
-			args: { project: frm.doc.project },
-		}).then((r) => {
-			const tenders = r.message || [];
-			if (tenders.length) {
-				tenders.forEach((tender) => frm.add_child('project_tenders', { tender }));
-				frm.refresh_field('project_tenders');
-			} else {
-				frappe.msgprint({
-					title: __('No Tender on Project'),
-					message: __('Project {0} has no linked Tender, so there is no BOQ to contract against.',
-						[frm.doc.project]),
-					indicator: 'red',
-				});
-			}
-			setup_buttons(frm);
-		});
+	department(frm) {
+		// FR-SC-07: same fetch-and-repopulate flow as project(frm), scoped
+		// by the (possibly now blank) department - blank restores the
+		// unfiltered list.
+		refresh_project_tenders(frm);
 	},
 
 	type_subcontractor(frm) {
@@ -129,9 +140,71 @@ frappe.ui.form.on('Subcontractor Contract', {
 			frm.refresh_field(fieldname);
 		});
 
+		// FR-SC-10: repopulate the (now-empty) resource tabs for the new
+		// type, same as if each surviving row's work_item were just picked.
+		(frm.doc.contracted_items || []).forEach((row) => {
+			if (row.work_item && flt(row.qty)) {
+				propagate_resources(frm, row.work_item, row.qty);
+			}
+		});
+
+		refresh_payment_condition_category_options(frm);
 		setup_buttons(frm);
 	},
 });
+
+// FR-14: category options restricted to whichever resource tabs the
+// server-side truth (LABOR_TYPES/EQUIPMENT/SUPPLY_AND_INSTALL, via these
+// same is_material_type/is_labor_type/is_equipment_type helpers) actually
+// applies to this contract type - not the JSON depends_on strings, which
+// disagree with the server for Labor/Equipment on a Supplying and
+// installing contract.
+function refresh_payment_condition_category_options(frm) {
+	const categories = [];
+	if (is_material_type(frm)) categories.push('Material');
+	if (is_labor_type(frm)) categories.push('Labor');
+	if (is_equipment_type(frm)) categories.push('Equipment');
+	frm.fields_dict.payment_conditions.grid.update_docfield_property(
+		'category', 'options', [''].concat(categories).join('\n')
+	);
+}
+
+// FR-01/FR-SC-07: shared by project(frm) and department(frm) - Project
+// Tenders follows both the project and, now, the department. Goes through
+// the server (not a plain frappe.db.get_value on Project.tender) since
+// newer projects only carry their Tender(s) via Project Tender -
+// get_project_tenders_for_project resolves both shapes the same way
+// set_project_tenders does server-side, and can return more than one Tender.
+function refresh_project_tenders(frm) {
+	frm.clear_table('project_tenders');
+	frm.refresh_field('project_tenders');
+	if (!frm.doc.project) {
+		setup_buttons(frm);
+		return;
+	}
+
+	frappe.call({
+		method: 'contracting.contracting.doctype.subcontractor_contract.subcontractor_contract.get_project_tenders_for_project',
+		args: { project: frm.doc.project, department: frm.doc.department },
+	}).then((r) => {
+		const tenders = r.message || [];
+		if (tenders.length) {
+			tenders.forEach((tender) => frm.add_child('project_tenders', { tender }));
+			frm.refresh_field('project_tenders');
+		} else {
+			frappe.msgprint({
+				title: __('No Tender on Project'),
+				message: frm.doc.department
+					? __('Project {0} has no linked Tender in category {1}, so there is no BOQ to contract against.',
+						[frm.doc.project, frm.doc.department])
+					: __('Project {0} has no linked Tender, so there is no BOQ to contract against.',
+						[frm.doc.project]),
+				indicator: 'red',
+			});
+		}
+		setup_buttons(frm);
+	});
+}
 
 // FR-20: cascade-delete. Removing a Contracted Items row orphans any
 // Material/Labor/Equipment rows that pointed at the same work item - drop
@@ -430,6 +503,8 @@ function render_work_item_dialog(frm, rows, invoiced_by_work_item) {
 				const child = Object.assign({}, row);
 				delete child.item_name;  // not a field on Contractor Contract Item
 				delete child.tender;  // display-only, not a field on Contractor Contract Item
+				delete child.item_code;  // display-only, not a field on Contractor Contract Item
+				delete child.contracted;  // display-only, not a field on Contractor Contract Item
 				const added = frm.add_child('contracted_items', child);
 				// FR-06: qty is already known here (get_unallocated_boq_items'
 				// own availability default), so propagate immediately rather
@@ -446,7 +521,9 @@ function render_work_item_dialog(frm, rows, invoiced_by_work_item) {
 	function render(filter_text) {
 		const term = (filter_text || '').toLowerCase();
 		const html = rows.map((row, idx) => {
-			const label = row.description || row.work_item;
+			// FR-SC-03/04: item_code folded into the label itself, so the
+			// existing label match below also matches on it.
+			const label = (row.item_code ? `${row.item_code} — ` : '') + (row.description || row.work_item);
 			if (term && !label.toLowerCase().includes(term)) return '';
 			return `
 				<div class="work-item-row" data-idx="${idx}"
@@ -455,6 +532,7 @@ function render_work_item_dialog(frm, rows, invoiced_by_work_item) {
 					<span style="flex:2">${frappe.utils.escape_html(label)}</span>
 					<span style="flex:1; color:var(--text-muted);">${frappe.utils.escape_html(row.tender || '')}</span>
 					<span style="flex:1">${__('Available')}: ${flt(row.available_qty)}</span>
+					<span style="flex:1">${__('Contracted')}: ${flt(row.contracted)}</span>
 					<span style="flex:1">${__('Invoiced')}: ${flt(invoiced_by_work_item[row.work_item] || 0)}</span>
 				</div>
 			`;

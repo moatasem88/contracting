@@ -73,7 +73,7 @@ def get_work_item(work_item):
 	row = frappe.db.get_value(
 		"Tender BOQ Item",
 		work_item,
-		["name", "parent", "idx", "item_name", "uom", "original_quantity", "is_group"],
+		["name", "parent", "idx", "item_name", "description", "uom", "original_quantity", "is_group"],
 		as_dict=True,
 	)
 	if not row:
@@ -295,7 +295,7 @@ def _work_item_for_resource(resource_row):
 		row = frappe.db.get_value(
 			"Tender BOQ Item",
 			resource_row.boq_row_id,
-			["name", "parent", "idx", "item_name", "uom", "original_quantity", "is_group"],
+			["name", "parent", "idx", "item_name", "description", "uom", "original_quantity", "is_group"],
 			as_dict=True,
 		)
 		if row:
@@ -304,7 +304,7 @@ def _work_item_for_resource(resource_row):
 	row = frappe.db.get_value(
 		"Tender BOQ Item",
 		{"parent": resource_row.parent, "idx": resource_row.work_item},
-		["name", "parent", "idx", "item_name", "uom", "original_quantity", "is_group"],
+		["name", "parent", "idx", "item_name", "description", "uom", "original_quantity", "is_group"],
 		as_dict=True,
 	)
 	if not row:
@@ -536,11 +536,11 @@ def work_item_query(doctype, txt, searchfield, start, page_len, filters):
 
 	return frappe.db.sql(
 		"""
-		select name, item_name, uom
+		select name, item_name, uom, item_code
 		from `tabTender BOQ Item`
 		where parent in %(tenders)s
 		  and ifnull(is_group, 0) = 0
-		  and (name like %(txt)s or ifnull(item_name, '') like %(txt)s)
+		  and (name like %(txt)s or ifnull(item_name, '') like %(txt)s or ifnull(item_code, '') like %(txt)s)
 		order by parent, idx
 		limit %(start)s, %(page_len)s
 		""",

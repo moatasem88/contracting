@@ -43,15 +43,13 @@
   {
    "fieldname": "this_period_qty",
    "fieldtype": "Float",
-   "label": "This Period Qty",
-   "read_only": 1
+   "label": "This Period Qty"
   },
   {
    "fieldname": "percent_complete",
    "fieldtype": "Percent",
    "in_list_view": 1,
-   "label": "Percent Complete",
-   "read_only": 1
+   "label": "Percent Complete"
   },
   {
    "fieldname": "rate",

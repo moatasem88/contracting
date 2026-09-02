@@ -17,6 +17,21 @@ from contracting.contracting.utils.allocation import (
 RETENTION_CHARGE = "Retention"
 MANUAL_FALLBACK_CHARGE = "Material Supplied by Company (Manual Fallback)"
 
+# Payment Condition category -> which contract types actually populate that
+# resource tab (FR-14). Server-side truth, not the JSON depends_on strings -
+# those disagree with this for Labor/Equipment on a Supplying and installing
+# contract (see validate_labor_items / validate_equipment_items below).
+CATEGORY_TYPE_GATE = {
+	"Material": (SUPPLY_AND_INSTALL,),
+	"Labor": LABOR_TYPES,
+	"Equipment": (EQUIPMENT,),
+}
+_RESOURCE_FIELD_BY_CATEGORY_REVERSE = {
+	"material_item": "Material",
+	"labor_item": "Labor",
+	"equipment_item": "Equipment",
+}
+
 # Reuses the role that already owns financial oversight on this instance,
 # rather than introducing a separate override role.
 COST_CONTROL_ROLE = "cost control manager"
@@ -38,6 +53,8 @@ class SubcontractorContract(Document):
 		self.validate_labor_items()
 		self.validate_equipment_items()
 		self.validate_material_conflicts()
+		self.prune_orphaned_payment_condition_resources()
+		self.validate_payment_condition_resources()
 		self.validate_payment_conditions()
 		self.calculate_totals()
 		self.validate_retention_rows()
@@ -66,8 +83,13 @@ class SubcontractorContract(Document):
 			self.set("project_tenders", [])
 			return
 
-		tenders = get_project_tenders(self.project)
+		tenders = get_project_tenders(self.project, self.department)
 		if not tenders:
+			if self.department:
+				frappe.throw(
+					_("Project {0} has no linked Tender in category {1}, so there is no BOQ to "
+					  "contract against.").format(frappe.bold(self.project), frappe.bold(self.department))
+				)
 			frappe.throw(
 				_("Project {0} has no linked Tender, so there is no BOQ to contract against.").format(
 					frappe.bold(self.project)
@@ -124,10 +146,17 @@ class SubcontractorContract(Document):
 				row.get("material_item"),
 				flt(row.get("qty")),
 				flt(row.get("unit_price")),
+				row.get("tax_charge_type"),
+				row.get("cost_category"),
 				row.get("charge_type"),
-				row.get("rate_type"),
-				flt(row.get("rate_or_amount")),
-				row.get("add_or_deduct"),
+				row.get("category"),
+				row.get("row_id"),
+				row.get("account_head"),
+				row.get("cost_center"),
+				flt(row.get("rate")),
+				flt(row.get("tax_amount")),
+				row.get("add_deduct_tax"),
+				flt(row.get("total")),
 				row.get("condition"),
 				flt(row.get("percent")),
 				row.get("tender"),
@@ -162,8 +191,10 @@ class SubcontractorContract(Document):
 				)
 
 			# Descriptive only - deliberately no cost, margin or sell price
-			# is copied from the tender (FR-06).
-			row.description = work_item_row.item_name
+			# is copied from the tender (FR-06). Falls back to item_name
+			# since most live BOQ rows still have description blank
+			# (FR-SC-01/02).
+			row.description = work_item_row.description or work_item_row.item_name
 			row.uom = work_item_row.uom
 
 			self.validate_row_resource(row, work_item_row)
@@ -338,6 +369,71 @@ class SubcontractorContract(Document):
 
 	# -- payment conditions (FR-21-FR-24) -----------------------------------
 
+	def prune_orphaned_payment_condition_resources(self):
+		"""Edge case: a condition's resource tag falls back to whole-work-item
+		scope if that resource row was removed from the contract - same
+		cascade-clear philosophy prune_orphaned_resource_rows already
+		applies to the resource tabs themselves.
+		"""
+		live = {
+			"material_item": {r.name for r in self.contract_material_items},
+			"labor_item": {r.name for r in self.contract_labor_items},
+			"equipment_item": {r.name for r in self.contract_equipment_items},
+		}
+		for row in self.payment_conditions:
+			for fieldname, alive in live.items():
+				value = row.get(fieldname)
+				if value and value not in alive:
+					row.set(fieldname, None)
+					row.category = None
+
+	def validate_payment_condition_resources(self):
+		"""FR-14: category is gated by the same server-side truth that
+		actually populates the resource tabs (LABOR_TYPES/EQUIPMENT/
+		SUPPLY_AND_INSTALL), not the JSON depends_on strings, which disagree
+		with it for Labor/Equipment on a Supplying and installing contract -
+		offering a category the tabs can never populate would be a dead end.
+
+		FR-15: a tagged resource must match its row's category, and (if the
+		row's work_item is also set) must belong to that same work item.
+		"""
+		tables = {
+			"material_item": {r.name: r for r in self.contract_material_items},
+			"labor_item": {r.name: r for r in self.contract_labor_items},
+			"equipment_item": {r.name: r for r in self.contract_equipment_items},
+		}
+
+		for row in self.payment_conditions:
+			if row.category:
+				allowed_types = CATEGORY_TYPE_GATE.get(row.category, ())
+				if self.type_subcontractor not in allowed_types:
+					frappe.throw(
+						_("Row {0}: Category {1} is not applicable to a {2} contract."
+						  ).format(row.idx, row.category, self.type_subcontractor)
+					)
+
+			set_fields = [f for f in ("material_item", "labor_item", "equipment_item") if row.get(f)]
+			if not set_fields:
+				continue
+			if len(set_fields) > 1:
+				frappe.throw(_("Row {0}: set only one of Material/Labor/Equipment Item.").format(row.idx))
+
+			fieldname = set_fields[0]
+			expected_category = _RESOURCE_FIELD_BY_CATEGORY_REVERSE[fieldname]
+			if row.category != expected_category:
+				frappe.throw(
+					_("Row {0}: {1} is set, so Category must be {2}.").format(
+						row.idx, frappe.get_meta(row.doctype).get_label(fieldname), expected_category
+					)
+				)
+
+			resource_row = tables[fieldname].get(row.get(fieldname))
+			if resource_row and row.work_item and resource_row.work_item != row.work_item:
+				frappe.throw(
+					_("Row {0}: the selected resource belongs to a different work item than this "
+					  "row's Work Item.").format(row.idx)
+				)
+
 	def validate_payment_conditions(self):
 		"""FR-22/FR-23: each condition group must sum to 100% - the
 		contract-wide default (rows with no Work Item) and, independently,
@@ -436,7 +532,7 @@ class SubcontractorContract(Document):
 		# so the recovery has to be a deduction on the contract instead.
 		tagged = any(c.is_tagged_for_deduction for c in conflicts)
 		manual_fallback = any(
-			c.charge_type == MANUAL_FALLBACK_CHARGE for c in self.additional_costs
+			c.cost_category == MANUAL_FALLBACK_CHARGE for c in self.additional_costs
 		)
 		if not tagged and not manual_fallback:
 			frappe.throw(
@@ -458,23 +554,55 @@ class SubcontractorContract(Document):
 			self.net_total += flt(row.amount)
 
 		total_charges = 0.0
+		running_total = flt(self.net_total)
 		for row in self.additional_costs:
-			if row.rate_type == "% of Net Total":
-				amount = flt(self.net_total) * flt(row.rate_or_amount) / 100.0
-			else:
-				amount = flt(row.rate_or_amount)
+			amount = self._compute_charge_amount(row)
+			row.tax_amount = amount
 
-			if row.add_or_deduct == "Deduct":
-				amount = -amount
-
-			row.computed_amount = amount
-			total_charges += amount
+			signed = -amount if row.add_deduct_tax == "Deduct" else amount
+			running_total += signed
+			row.total = running_total
+			total_charges += signed
 
 		self.total_additional_charges = total_charges
 		self.grand_total = flt(self.net_total) + flt(total_charges)
 
+	def _compute_charge_amount(self, row):
+		"""FR-06: same 5-way cascade as core Purchase Taxes and Charges."""
+		charge_type = row.charge_type or "On Net Total"
+
+		if charge_type == "Actual":
+			return flt(row.tax_amount)
+		if charge_type == "On Net Total":
+			return flt(self.net_total) * flt(row.rate) / 100.0
+		if charge_type in ("On Previous Row Amount", "On Previous Row Total"):
+			ref_row = self._get_referenced_charge_row(row)
+			base = flt(ref_row.tax_amount) if charge_type == "On Previous Row Amount" else flt(ref_row.total)
+			return base * flt(row.rate) / 100.0
+		if charge_type == "On Item Quantity":
+			total_qty = sum(flt(r.qty) for r in self.contracted_items)
+			return flt(row.rate) * total_qty
+
+		frappe.throw(_("Row {0}: unrecognised Charge Type {1}.").format(row.idx, charge_type))
+
+	def _get_referenced_charge_row(self, row):
+		try:
+			ref_idx = int(row.row_id)
+		except (TypeError, ValueError):
+			frappe.throw(
+				_("Row {0}: Reference Row # is required and must be a row number when Charge Type "
+				  "is {1}.").format(row.idx, row.charge_type)
+			)
+		ref_row = next((r for r in self.additional_costs if r.idx == ref_idx), None)
+		if not ref_row:
+			frappe.throw(
+				_("Row {0}: Reference Row # {1} does not exist in Additional Costs.").format(row.idx, row.row_id)
+			)
+		return ref_row
+
 	def validate_retention_rows(self):
-		"""FR-12: at most one Retention row.
+		"""FR-12: at most one Retention row. FR-17: a Retention row must
+		withhold money, not add it.
 
 		Additional Costs is optional in full - a contract may carry no charges
 		at all, and none of them is individually required. But when a Retention
@@ -492,8 +620,15 @@ class SubcontractorContract(Document):
 				_("Only one 'Retention' row is allowed in Additional Costs - found {0}.").format(count)
 			)
 
+		for row in self.additional_costs:
+			if row.cost_category == RETENTION_CHARGE and row.add_deduct_tax != "Deduct":
+				frappe.throw(
+					_("Contract {0}, Additional Costs row {1}: a Retention charge must be Deduct, not {2}.")
+					.format(self.name or _("(unsaved)"), row.idx, row.add_deduct_tax)
+				)
+
 	def _retention_row_count(self):
-		return len([r for r in self.additional_costs if r.charge_type == RETENTION_CHARGE])
+		return len([r for r in self.additional_costs if r.cost_category == RETENTION_CHARGE])
 
 	def warn_if_no_retention(self):
 		"""Retention is optional, but its absence is worth saying out loud.
@@ -524,7 +659,7 @@ class SubcontractorContract(Document):
 		self.requires_ceo_approval = 1 if threshold and flt(self.grand_total) >= threshold else 0
 
 
-def get_project_tenders(project):
+def get_project_tenders(project, department=None):
 	"""FR-01, extended 2026-08-30: every Tender in scope for a project, not
 	just one - a project can carry more than one Tender (phased tendering,
 	multiple categories, ...), and a Subcontractor Contract can draw work
@@ -538,6 +673,10 @@ def get_project_tenders(project):
 	shape, so a Subcontractor Contract against such a project used to see
 	"no Tender" even though real Tenders existed underneath it.
 
+	department (FR-SC-06), when given, narrows the result to Tenders whose
+	own tender_category matches - so a contract scoped to one department
+	only ever offers work items from that department's Tender(s).
+
 	Shared by set_project_tenders (server validate) and
 	get_project_tenders_for_project (the client's project-change handler),
 	so both resolve the same way.
@@ -547,30 +686,39 @@ def get_project_tenders(project):
 
 	tender = frappe.db.get_value("Project", project, "tender")
 	if tender:
-		return [tender]
+		tenders = [tender]
+	else:
+		project_tender = frappe.db.get_value("Project", project, "project_tender")
+		if not project_tender:
+			return []
 
-	project_tender = frappe.db.get_value("Project", project, "project_tender")
-	if not project_tender:
-		return []
+		tenders = [
+			t for t in frappe.get_all(
+				"Project Tender Direct Cost Detail",
+				filters={"parent": project_tender},
+				order_by="idx",
+				pluck="tender",
+			)
+			if t
+		]
 
-	return [
-		t for t in frappe.get_all(
-			"Project Tender Direct Cost Detail",
-			filters={"parent": project_tender},
-			order_by="idx",
-			pluck="tender",
+	if department and tenders:
+		categories = frappe.db.get_values(
+			"Tender", {"name": ["in", tenders]}, ["name", "tender_category"], as_dict=True
 		)
-		if t
-	]
+		in_category = {row.name for row in categories if row.tender_category == department}
+		tenders = [t for t in tenders if t in in_category]
+
+	return tenders
 
 
 @frappe.whitelist()
-def get_project_tenders_for_project(project):
-	"""Client-side counterpart to set_project_tenders - the project(frm)
-	handler in subcontractor_contract.js calls this instead of reading
-	Project.tender directly, so both resolve the same way.
+def get_project_tenders_for_project(project, department=None):
+	"""Client-side counterpart to set_project_tenders - the project(frm)/
+	department(frm) handlers in subcontractor_contract.js call this instead
+	of reading Project.tender directly, so both resolve the same way.
 	"""
-	return get_project_tenders(project)
+	return get_project_tenders(project, department)
 
 
 def find_material_conflicts(work_item):
@@ -639,7 +787,7 @@ def get_unallocated_boq_items(tenders, contract_type, subcontractor_contract=Non
 	boq_rows = frappe.get_all(
 		"Tender BOQ Item",
 		filters={"parent": ["in", tenders], "is_group": 0},
-		fields=["name", "item_name", "uom", "original_quantity", "idx", "parent"],
+		fields=["name", "item_name", "description", "item_code", "uom", "original_quantity", "idx", "parent"],
 		order_by="parent, idx",
 	)
 
@@ -655,9 +803,13 @@ def get_unallocated_boq_items(tenders, contract_type, subcontractor_contract=Non
 				# Not a field on the child row - the client uses it to prime the
 				# link-title cache, then strips it before add_child.
 				"item_name": boq_row.item_name,
-				"description": boq_row.item_name,
+				"description": boq_row.description or boq_row.item_name,
+				"item_code": boq_row.item_code,
 				"uom": boq_row.uom,
 				"available_qty": available,
+				# FR-SC-09: type-scoped, same population get_row_availability
+				# above already reads.
+				"contracted": boq_row.original_quantity - available,
 				"qty": available,
 			})
 

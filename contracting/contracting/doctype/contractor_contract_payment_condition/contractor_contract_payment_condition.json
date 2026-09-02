@@ -8,7 +8,11 @@
  "field_order": [
   "work_item",
   "condition",
-  "percent"
+  "percent",
+  "category",
+  "material_item",
+  "labor_item",
+  "equipment_item"
  ],
  "fields": [
   {
@@ -32,6 +36,35 @@
    "in_list_view": 1,
    "label": "Percent",
    "reqd": 1
+  },
+  {
+   "description": "Optional eligibility tag - does not create a new percent pool (see Work Item above).",
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "\nMaterial\nLabor\nEquipment"
+  },
+  {
+   "depends_on": "eval:doc.category==\"Material\"",
+   "fieldname": "material_item",
+   "fieldtype": "Link",
+   "label": "Material Item",
+   "options": "Contractor Contract Material Item"
+  },
+  {
+   "depends_on": "eval:doc.category==\"Labor\"",
+   "fieldname": "labor_item",
+   "fieldtype": "Link",
+   "label": "Labor Item",
+   "options": "Contractor Contract Labor Item"
+  },
+  {
+   "depends_on": "eval:doc.category==\"Equipment\"",
+   "fieldname": "equipment_item",
+   "fieldtype": "Link",
+   "label": "Equipment Item",
+   "options": "Contractor Contract Equipment Item"
   }
  ],
  "index_web_pages_for_search": 1,

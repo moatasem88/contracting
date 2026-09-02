@@ -67,6 +67,14 @@ frappe.ui.form.on('Tender', {
         let idle_checkpoint = null;
         let sync_save = frappe.utils.throttle(() => {
             if (frm.is_new()) return;
+            // Suppress core's realtime doc_update handler (model.js) from
+            // reacting to this call's own broadcast - mirrors the guard a
+            // real frm.save() already sets around its own request/response
+            // cycle (save.js). Without this, the originating tab hears its
+            // own confirmed write back over the socket and misreads it as
+            // an external change, which is what a Consolidate Rates by Item
+            // propagated value "reverting a moment later" actually was.
+            frappe.ui.form.is_saving = true;
             frappe.call({
                 method: 'contracting.contracting.doctype.tender.tender.sync_live_edits',
                 args: {tender: frm.doc},
@@ -89,6 +97,9 @@ frappe.ui.form.on('Tender', {
                     frm.doc.tender_final_cost = r.message.tender_final_cost;
                     frm.doc.total_indirect_cost = r.message.total_indirect_cost;
                     frm.doc.sell_amount = r.message.sell_amount;
+                },
+                always() {
+                    frappe.ui.form.is_saving = false;
                 }
             });
         }, AUTO_SYNC_SAVE_INTERVAL_MS);

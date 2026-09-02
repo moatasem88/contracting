@@ -12,7 +12,6 @@
   "invoice_date",
   "col_break_1",
   "status",
-  "retention_percent",
   "measured_by",
   "approved_by",
   "purchase_invoice",
@@ -21,10 +20,13 @@
   "items",
   "condition_progress_section",
   "condition_progress",
+  "additional_costs_section",
+  "additional_costs",
   "totals_section",
   "total_this_period",
   "col_break_2",
   "total_retention_held",
+  "total_additional_charges",
   "net_payable"
  ],
  "fields": [
@@ -62,11 +64,6 @@
    "label": "Status",
    "options": "Draft\nMeasured\nApproved\nInvoiced",
    "read_only": 1
-  },
-  {
-   "fieldname": "retention_percent",
-   "fieldtype": "Percent",
-   "label": "Retention %"
   },
   {
    "fieldname": "measured_by",
@@ -122,6 +119,19 @@
    "options": "Contractor Invoice Condition Progress"
   },
   {
+   "fieldname": "additional_costs_section",
+   "fieldtype": "Section Break",
+   "label": "Additional Costs"
+  },
+  {
+   "description": "Rebuilt from the linked contract's Additional Costs on every save, prorated by this invoice's share of the contract - including Retention, which is mirrored and prorated the same as every other charge.",
+   "fieldname": "additional_costs",
+   "fieldtype": "Table",
+   "label": "Additional Costs",
+   "options": "Contractor Invoice Charge",
+   "read_only": 1
+  },
+  {
    "fieldname": "totals_section",
    "fieldtype": "Section Break",
    "label": "Totals"
@@ -140,6 +150,12 @@
    "fieldname": "total_retention_held",
    "fieldtype": "Currency",
    "label": "Total Retention Held",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_additional_charges",
+   "fieldtype": "Currency",
+   "label": "Total Additional Charges",
    "read_only": 1
   },
   {
