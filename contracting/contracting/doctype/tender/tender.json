@@ -43,7 +43,28 @@
   "labor_tab",
   "labor_items",
   "equipment_tab",
-  "equipment_items"
+  "equipment_items",
+  "legacy_pre_migration_section",
+  "details_section",
+  "project_processing_status",
+  "project_classification",
+  "column_break_uzitf",
+  "engineering_consulting_office",
+  "customer",
+  "column_break_tea6t",
+  "project_engineer",
+  "description",
+  "tender_number",
+  "contracting_items",
+  "project",
+  "section_break_avzz5",
+  "column_break_jnytx",
+  "section_break_4tad0",
+  "column_break_r4ojc",
+  "column_break_azpgy",
+  "section_break_oveen",
+  "tender_document_cost",
+  "project_type"
  ],
  "fields": [
   {
@@ -272,6 +293,121 @@
    "fieldtype": "Table",
    "label": "Equipment Items",
    "options": "Tender Equipment Item"
+  },
+  {
+   "fieldname": "legacy_pre_migration_section",
+   "fieldtype": "Section Break",
+   "label": "Legacy Data (preserved from previous version)",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "project_processing_status",
+   "fieldtype": "Link",
+   "label": "Project Processing Status",
+   "options": "Project Processing Status"
+  },
+  {
+   "fieldname": "project_classification",
+   "fieldtype": "Link",
+   "label": "Project Classification",
+   "options": "Project Classification"
+  },
+  {
+   "fieldname": "column_break_uzitf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "engineering_consulting_office",
+   "fieldtype": "Link",
+   "label": "Engineering consulting office",
+   "options": "Engineering consulting office"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_tea6t",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "project_engineer",
+   "fieldtype": "Link",
+   "label": "Project Engineer",
+   "options": "Project Engineer"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tender_number",
+   "fieldtype": "Data",
+   "label": "Tender Number",
+   "reqd": 1
+  },
+  {
+   "allow_bulk_edit": 1,
+   "fieldname": "contracting_items",
+   "fieldtype": "Table",
+   "label": "Contracting Items",
+   "options": "Contracting Items Child",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Project",
+   "options": "Project",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_avzz5",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_jnytx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_4tad0",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_r4ojc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_azpgy",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_oveen",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "tender_document_cost",
+   "fieldtype": "Currency",
+   "label": "Tender Document Cost"
+  },
+  {
+   "fieldname": "project_type",
+   "fieldtype": "Link",
+   "label": "Project Type",
+   "options": "Project Type",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
