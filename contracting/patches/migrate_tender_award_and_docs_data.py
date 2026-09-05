@@ -20,12 +20,19 @@ STATUS_REMAP = {
 
 
 def execute():
+	# On some sites the Tender doctype never carried these legacy fields (they
+	# were only ever present on installs that predate the Project Tender
+	# refactor), so the DocType sync that runs before this post_model_sync
+	# patch will have already dropped/never created the columns. Querying a
+	# column that isn't in the table raises a MySQL "Unknown column" error,
+	# so only request the ones that actually exist and treat the rest as
+	# never having had award/doc data to migrate.
+	legacy_fields = ["sales_order", "contract_document", "notes", "attachments"]
+	existing_legacy_fields = [f for f in legacy_fields if frappe.db.has_column("Tender", f)]
+
 	tenders = frappe.get_all(
 		"Tender",
-		fields=[
-			"name", "status", "project_tender", "project", "sales_order",
-			"contract_document", "notes", "attachments",
-		],
+		fields=["name", "status", "project_tender", "project", *existing_legacy_fields],
 	)
 
 	attachments_migrated = 0
