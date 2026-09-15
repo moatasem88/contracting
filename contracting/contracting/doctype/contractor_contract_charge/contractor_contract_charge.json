@@ -14,6 +14,7 @@
   "row_id",
   "account_head",
   "cost_center",
+  "rate_type",
   "rate",
   "tax_amount",
   "add_deduct_tax",
@@ -27,6 +28,7 @@
    "options": "Tax and Charge Type"
   },
   {
+   "fetch_from": "tax_charge_type.default_cost_category",
    "fieldname": "cost_category",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -36,6 +38,7 @@
   },
   {
    "default": "On Net Total",
+   "fetch_from": "tax_charge_type.default_charge_type",
    "fieldname": "charge_type",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -52,6 +55,7 @@
    "reqd": 1
   },
   {
+   "fetch_from": "tax_charge_type.default_description",
    "fieldname": "description",
    "fieldtype": "Small Text",
    "in_list_view": 1,
@@ -64,6 +68,7 @@
    "label": "Reference Row #"
   },
   {
+   "fetch_from": "tax_charge_type.default_account_head",
    "fieldname": "account_head",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -79,7 +84,17 @@
    "options": "Cost Center"
   },
   {
-   "description": "Percent, when Charge Type is a percentage-style type.",
+   "default": "Percentage",
+   "fetch_from": "tax_charge_type.default_rate_type",
+   "fieldname": "rate_type",
+   "fieldtype": "Select",
+   "label": "Rate Type",
+   "options": "\nPercentage\nFixed Amount",
+   "reqd": 1
+  },
+  {
+   "description": "Interpreted as a percent or a flat amount depending on Rate Type.",
+   "fetch_from": "tax_charge_type.default_rate",
    "fieldname": "rate",
    "fieldtype": "Float",
    "label": "Rate"
@@ -92,6 +107,7 @@
   },
   {
    "default": "Add",
+   "fetch_from": "tax_charge_type.default_add_deduct_tax",
    "fieldname": "add_deduct_tax",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -110,7 +126,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-09-01 10:00:00.000000",
+ "modified": "2026-09-12 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Contractor Contract Charge",

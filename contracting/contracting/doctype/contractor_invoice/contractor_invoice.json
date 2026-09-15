@@ -8,14 +8,18 @@
  "engine": "InnoDB",
  "field_order": [
   "naming_series",
+  "project",
   "contractor_contract",
+  "subcontractor",
+  "invoice_number",
   "invoice_date",
   "col_break_1",
-  "status",
-  "measured_by",
-  "approved_by",
+  "workflow_state",
   "purchase_invoice",
   "retention_journal_entry",
+  "amended_from",
+  "invoice_attachment",
+  "checklist_attachment",
   "items_section",
   "items",
   "condition_progress_section",
@@ -38,6 +42,15 @@
    "reqd": 1
   },
   {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Project",
+   "reqd": 1
+  },
+  {
    "fieldname": "contractor_contract",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -46,10 +59,32 @@
    "reqd": 1
   },
   {
+   "description": "Only exists so \"Subcontractor\" can be a list-view standard filter chip - Frappe standard filters only work on the doctype's own fields.",
+   "fetch_from": "contractor_contract.contractor_name",
+   "fieldname": "subcontractor",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Subcontractor",
+   "options": "Supplier",
+   "read_only": 1
+  },
+  {
+   "description": "Computed once, at insert: count of Contractor Invoices already submitted against this contract, plus one.",
+   "fieldname": "invoice_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Invoice Number",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "default": "Today",
    "fieldname": "invoice_date",
    "fieldtype": "Date",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Invoice Date"
   },
   {
@@ -57,32 +92,20 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "Draft",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "Draft\nMeasured\nApproved\nInvoiced",
-   "read_only": 1
-  },
-  {
-   "fieldname": "measured_by",
+   "fieldname": "workflow_state",
    "fieldtype": "Link",
-   "label": "Measured By",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "approved_by",
-   "fieldtype": "Link",
-   "label": "Approved By",
-   "options": "User",
+   "hidden": 1,
+   "label": "Workflow State",
+   "no_copy": 1,
+   "options": "Workflow State",
+   "print_hide": 1,
    "read_only": 1
   },
   {
    "fieldname": "purchase_invoice",
    "fieldtype": "Link",
    "label": "Purchase Invoice",
+   "no_copy": 1,
    "options": "Purchase Invoice",
    "read_only": 1
   },
@@ -90,8 +113,33 @@
    "fieldname": "retention_journal_entry",
    "fieldtype": "Link",
    "label": "Retention Journal Entry",
+   "no_copy": 1,
    "options": "Journal Entry",
    "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Contractor Invoice",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Editable only while this invoice is in Draft (Site Engineer).",
+   "fieldname": "invoice_attachment",
+   "fieldtype": "Attach",
+   "label": "Invoice Attachment",
+   "no_copy": 1
+  },
+  {
+   "depends_on": "eval:doc.workflow_state=='Pending Cost Control Engineer Review' || doc.checklist_attachment",
+   "description": "Only appears - and is only settable - while this invoice is Pending Cost Control Engineer Review. Required to pass that step's own Approve transition (FR-25): the Cost Control Engineer cannot move it on to Cost Control Manager without it.",
+   "fieldname": "checklist_attachment",
+   "fieldtype": "Attach",
+   "label": "Cost Control Checklist",
+   "no_copy": 1
   },
   {
    "fieldname": "items_section",
@@ -102,6 +150,7 @@
    "fieldname": "items",
    "fieldtype": "Table",
    "label": "Items",
+   "no_copy": 1,
    "options": "Contractor Invoice Item"
   },
   {
@@ -116,6 +165,7 @@
    "fieldname": "condition_progress",
    "fieldtype": "Table",
    "label": "Condition Progress",
+   "no_copy": 1,
    "options": "Contractor Invoice Condition Progress"
   },
   {
@@ -167,6 +217,7 @@
   }
  ],
  "index_web_pages_for_search": 1,
+ "is_submittable": 1,
  "links": [],
  "modified": "2026-08-14 18:00:00.000000",
  "modified_by": "Administrator",
@@ -175,6 +226,8 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -184,6 +237,79 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Site Engineer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cost Control Engineer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "cost control manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Planning and Cost Control Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
    "write": 1
   }
  ],

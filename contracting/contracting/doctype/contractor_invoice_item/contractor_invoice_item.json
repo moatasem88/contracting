@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "contract_item",
+  "description",
   "qty_allocated",
   "cumulative_qty_complete",
   "this_period_qty",
@@ -16,7 +17,8 @@
   "previously_invoiced_amount",
   "this_period_amount",
   "retention_amount",
-  "net_amount"
+  "net_amount",
+  "account"
  ],
  "fields": [
   {
@@ -27,6 +29,14 @@
    "label": "Contract Item",
    "options": "Contractor Contract Item",
    "reqd": 1
+  },
+  {
+   "description": "Set explicitly from the linked Contract Item's own description - not a fetch_from, matching Contractor Invoice Condition Progress's condition_label precedent for a Link that targets a child-table doctype (contract_item -> Contractor Contract Item).",
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "read_only": 1
   },
   {
    "fieldname": "qty_allocated",
@@ -88,6 +98,15 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Net Amount",
+   "read_only": 1
+  },
+  {
+   "description": "The account confirmed for this invoice's claim on this line - set only by the Contractor Invoice approval popup, not editable directly.",
+   "fieldname": "account",
+   "fieldtype": "Link",
+   "label": "Account",
+   "no_copy": 1,
+   "options": "Account",
    "read_only": 1
   }
  ],

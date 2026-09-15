@@ -14,7 +14,7 @@ app_license = "MIT"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/contracting/css/contracting.css"
-# app_include_js = "/assets/contracting/js/contracting.js"
+app_include_js = "/assets/contracting/js/tax_charge_type.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/contracting/css/contracting.css"
@@ -40,11 +40,12 @@ doctype_js = {
               "Sales Invoice" : "public/js/sales_invoice.js",
               "Task" : "public/js/task.js",
               "Tender" : "public/js/tender_expand_view.js",
-              "Project" : "public/js/project.js"
-              
+              "Project" : "public/js/project.js",
+              "Sales Order" : "public/js/sales_order.js"
 
-              
-              
+
+
+
               }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -92,22 +93,50 @@ from contracting.patches.create_subcontractor_contract_workflow import (
     TRANSITIONS as _WORKFLOW_TRANSITIONS,
     WORKFLOW_NAME as _WORKFLOW_NAME,
 )
+from contracting.patches.create_contractor_invoice_workflow import (
+    STATES as _CI_WORKFLOW_STATES,
+    TRANSITIONS as _CI_WORKFLOW_TRANSITIONS,
+    WORKFLOW_NAME as _CI_WORKFLOW_NAME,
+)
 from contracting.patches.create_tender_roles import TENDER_ROLES as _TENDER_ROLES
+from contracting.patches.create_contractor_invoice_roles import CONTRACTOR_INVOICE_ROLES as _CI_ROLES
 
 fixtures = [
     {"dt": "Custom Field", "filters": [["name", "in", _custom_field_names()]]},
     {
         "dt": "Role",
-        "filters": [["name", "in", ["Contracts Manager", *_TENDER_ROLES]]],
+        "filters": [["name", "in", ["Contracts Manager", *_TENDER_ROLES, *_CI_ROLES]]],
     },
-    {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME]]]},
+    {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME, _CI_WORKFLOW_NAME]]]},
     {
         "dt": "Workflow State",
-        "filters": [["name", "in", sorted({s[0] for s in _WORKFLOW_STATES})]],
+        "filters": [[
+            "name", "in",
+            sorted({s[0] for s in _WORKFLOW_STATES} | {s[0] for s in _CI_WORKFLOW_STATES}),
+        ]],
     },
     {
         "dt": "Workflow Action Master",
-        "filters": [["name", "in", sorted({t[1] for t in _WORKFLOW_TRANSITIONS})]],
+        "filters": [[
+            "name", "in",
+            sorted({t[1] for t in _WORKFLOW_TRANSITIONS} | {t[1] for t in _CI_WORKFLOW_TRANSITIONS}),
+        ]],
+    },
+    {
+        "dt": "DocType Link",
+        "filters": [
+            ["parent", "=", "Purchase Invoice"],
+            ["link_doctype", "=", "Contractor Invoice"],
+            ["custom", "=", 1],
+        ],
+    },
+    {
+        "dt": "DocType Link",
+        "filters": [
+            ["parent", "=", "Subcontractor Contract"],
+            ["link_doctype", "in", ["Contractor Invoice", "Purchase Invoice"]],
+            ["custom", "=", 1],
+        ],
     },
 ]
 # Uninstallation
@@ -155,6 +184,10 @@ doc_events = {
     "Contractor Contract Addendum":{
     "on_update":"contracting.contracting.doctype.contractor_contract_addendum.contractor_contract_addendum.apply_on_approval"
 	},
+    "Contractor Invoice":{
+		"on_submit":"contracting.contracting.utils.contract_item_progress.on_contractor_invoice_transaction",
+		"on_cancel":"contracting.contracting.utils.contract_item_progress.on_contractor_invoice_transaction"
+	},
     "Task":{
     "validate":"contracting.contracting.controllers.task.merge_items"
 	},
@@ -193,10 +226,12 @@ doc_events = {
 			"contracting.contracting.controllers.sales_invoice.update_remaining_qty_on_submit",
 			"contracting.contracting.controllers.retention.create_retention_je_on_sales_invoice_submit",
 			"contracting.contracting.utils.project_cost_billing.on_sales_transaction",
+			"contracting.contracting.utils.progress_invoicing.refresh_cpi_invoiced_tracking",
 		],
         "on_cancel":[
 			"contracting.contracting.controllers.sales_invoice.restore_qty_on_cancel_or_delete",
 			"contracting.contracting.utils.project_cost_billing.on_sales_transaction",
+			"contracting.contracting.utils.progress_invoicing.refresh_cpi_invoiced_tracking",
 		]
 
 	},
@@ -207,22 +242,33 @@ doc_events = {
 			"contracting.contracting.controllers.sales_invoice.update_remaining_qty_on_submit",
 			"contracting.contracting.controllers.retention.create_retention_je_on_purchase_invoice_submit",
 			"contracting.contracting.utils.project_cost_billing.on_purchase_transaction",
+			"contracting.contracting.utils.contract_item_progress.on_purchase_invoice_transaction",
 		],
         "on_cancel":[
 			"contracting.contracting.controllers.sales_invoice.restore_qty_on_cancel_or_delete",
 			"contracting.contracting.utils.project_cost_billing.on_purchase_transaction",
+			"contracting.contracting.utils.contract_item_progress.on_purchase_invoice_transaction",
 		]
 
 	},
     "Payment Entry":{
-		"on_submit":"contracting.contracting.utils.project_cost_billing.on_payment_entry_transaction",
-		"on_cancel":"contracting.contracting.utils.project_cost_billing.on_payment_entry_transaction"
+		"on_submit":[
+			"contracting.contracting.utils.project_cost_billing.on_payment_entry_transaction",
+			"contracting.contracting.utils.contract_item_progress.on_payment_entry_transaction",
+		],
+		"on_cancel":[
+			"contracting.contracting.utils.project_cost_billing.on_payment_entry_transaction",
+			"contracting.contracting.utils.contract_item_progress.on_payment_entry_transaction",
+		]
 	},
     "Employee Advance":{
 		"on_update":"contracting.contracting.utils.project_cost_billing.on_employee_advance_update"
 	},
     "Client Progress Invoice":{
 		"on_update":"contracting.contracting.utils.project_cost_billing.on_client_progress_invoice_update"
+	},
+    "Delivery Note":{
+		"on_cancel":"contracting.contracting.doctype.client_progress_invoice.client_progress_invoice.allow_cancel_when_linked_from_cpi"
 	}
 
 #	"*": {
@@ -289,6 +335,11 @@ standard_queries = {
 # override_doctype_dashboards = {
 # 	"Project": "contracting.contracting.overrides.project_dashboard.get_data"
 # }
+# Subcontractor Contract's own dashboard doesn't need this hook - it's
+# discovered by naming convention instead (subcontractor_contract_dashboard.py
+# in the doctype's own folder, get_dashboard_data()'s first, no-hook branch),
+# the same way erpnext's own purchase_order_dashboard.py works. This hook is
+# for a *different* app extending a doctype it doesn't own.
 
 # exempt linked doctypes from being automatically cancelled
 #

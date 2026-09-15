@@ -19,7 +19,10 @@
   "previously_invoiced_amount",
   "this_period_amount",
   "retention_amount",
-  "net_amount"
+  "net_amount",
+  "invoiced_qty",
+  "invoiced_percent",
+  "outstanding_qty"
  ],
  "fields": [
   {
@@ -118,6 +121,26 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Net Amount",
+   "read_only": 1
+  },
+  {
+   "description": "SUM(Sales Invoice Item.qty) across every submitted Sales Invoice whose so_detail matches this row's Sales Order Item. Refreshed on Sales Invoice submit/cancel - never from another Client Progress Invoice's status.",
+   "fieldname": "invoiced_qty",
+   "fieldtype": "Float",
+   "label": "Invoiced Qty",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoiced_percent",
+   "fieldtype": "Percent",
+   "label": "Invoiced %",
+   "read_only": 1
+  },
+  {
+   "description": "max(0, cumulative_qty_complete - invoiced_qty). Authoritative only for whichever Client Progress Invoice currently holds the highest cumulative_qty_complete for this Sales Order Item - an older, superseded row floors at 0 rather than showing a stale negative gap.",
+   "fieldname": "outstanding_qty",
+   "fieldtype": "Float",
+   "label": "Outstanding Qty",
    "read_only": 1
   }
  ],

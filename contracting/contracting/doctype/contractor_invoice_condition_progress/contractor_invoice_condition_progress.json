@@ -9,6 +9,8 @@
   "contract_item",
   "payment_condition",
   "condition_label",
+  "description",
+  "condition_percent",
   "qty_allocated",
   "cumulative_qty_complete",
   "this_period_qty",
@@ -18,7 +20,8 @@
   "previously_invoiced_amount",
   "this_period_amount",
   "retention_amount",
-  "net_amount"
+  "net_amount",
+  "account"
  ],
  "fields": [
   {
@@ -48,7 +51,23 @@
    "read_only": 1
   },
   {
-   "description": "This condition's share of the line's allocated qty (Contract Item qty x Condition percent).",
+   "description": "Set explicitly from the linked Contract Item's own description - not a fetch_from, for the same reason condition_label above isn't.",
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "read_only": 1
+  },
+  {
+   "description": "Set explicitly from the linked Payment Condition's own percent - not a fetch_from, for the same reason condition_label above isn't.",
+   "fieldname": "condition_percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Condition Percent",
+   "read_only": 1
+  },
+  {
+   "description": "The contract line's own full qty - shared, independently, by every condition on it.",
    "fieldname": "qty_allocated",
    "fieldtype": "Float",
    "label": "Qty Allocated",
@@ -108,6 +127,15 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Net Amount",
+   "read_only": 1
+  },
+  {
+   "description": "The account confirmed for this invoice's claim on this line - set only by the Contractor Invoice approval popup, not editable directly.",
+   "fieldname": "account",
+   "fieldtype": "Link",
+   "label": "Account",
+   "no_copy": 1,
+   "options": "Account",
    "read_only": 1
   }
  ],

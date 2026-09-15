@@ -113,12 +113,12 @@ def _compute_progress_invoiced(project_doc, sales_orders):
 	# The two filters are disjoint by row, so no double-counting risk.
 	total = _sum(
 		"Client Progress Invoice",
-		{"sales_order": ["in", sales_orders], "status": "Invoiced"},
+		{"sales_order": ["in", sales_orders], "docstatus": 1},
 		"total_this_period",
 	) if sales_orders else 0
 	total += _sum(
 		"Client Progress Invoice",
-		{"project": project_doc.name, "status": "Invoiced"},
+		{"project": project_doc.name, "docstatus": 1},
 		"total_this_period",
 	)
 	project_doc.total_progress_client_invoiced_amount = total
@@ -149,6 +149,10 @@ def _compute_header_fields(project_doc, sales_orders):
 	))
 
 	project_doc.total_client_invoiced = flt(project_doc.total_billed_amount)
+	project_doc.total_client_invoiced_percent = (
+		project_doc.total_client_invoiced / flt(project_doc.total_sales_amount) * 100
+		if flt(project_doc.total_sales_amount) else 0
+	)
 
 	payments_by_so = _payments_collected_by_sales_order(sales_orders)
 	project_doc.flags._payments_by_so = payments_by_so
@@ -320,7 +324,7 @@ def _progress_by_sales_order(sales_orders):
 		from `tabSales Order Item` soi
 		inner join `tabClient Progress Invoice Item` cpii on cpii.sales_order_item = soi.name
 		inner join `tabClient Progress Invoice` cpi on cpi.name = cpii.parent
-		where soi.parent in %(sos)s and cpi.status = 'Invoiced'
+		where soi.parent in %(sos)s and cpi.docstatus = 1
 		group by soi.name, soi.parent, soi.rate
 		""",
 		{"sos": sales_orders},

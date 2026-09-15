@@ -29,6 +29,16 @@ const RESOURCE_TABLES = {
 	contract_equipment_items: [`${ALLOCATION}.equipment_item_query`, 'equipment_item'],
 };
 
+// fieldname -> [the Tender-side resource doctype the link_fieldname above
+// points at, the Contractor Contract-side child doctype the row itself is].
+// Used only to prime frappe.utils' link-title cache for rows created via
+// propagate_resources() below - see its own comment for why that's needed.
+const RESOURCE_TITLE_DOCTYPES = {
+	contract_material_items: ['Tender Material Item', 'Contractor Contract Material Item'],
+	contract_labor_items: ['Tender Labor Item', 'Contractor Contract Labor Item'],
+	contract_equipment_items: ['Tender Equipment Item', 'Contractor Contract Equipment Item'],
+};
+
 frappe.ui.form.on('Subcontractor Contract', {
 	setup(frm) {
 		// Only suppliers actually flagged as subcontractors.
@@ -131,6 +141,12 @@ frappe.ui.form.on('Subcontractor Contract', {
 			frappe.model.set_value(row.doctype, row.name, 'labor_item', null);
 			frappe.model.set_value(row.doctype, row.name, 'equipment_item', null);
 			frappe.model.set_value(row.doctype, row.name, 'available_qty', 0);
+			// Forget that these work items were ever propagated too -
+			// otherwise propagate_resources (below) sees the tables just
+			// cleared next, finds no *current* row, but still sees this flag
+			// from before the clear and treats the rebuild as a no-op
+			// rescale instead of a fresh create.
+			frappe.model.set_value(row.doctype, row.name, 'resources_propagated', 0);
 		});
 
 		// FR-15: the resource tabs are keyed off the old type - none of
@@ -234,6 +250,96 @@ function setup_buttons(frm) {
 	if (project_tenders(frm).length && frm.doc.type_subcontractor && frm.doc.docstatus === 0) {
 		frm.add_custom_button(__('Select Work Item'), () => open_work_item_dialog(frm));
 	}
+
+	// FR-01-04: "Create" shortcuts for an Approved, still-open contract - no
+	// role restriction here, since creating a Contractor Invoice / Payment
+	// Entry is already gated by each target doctype's own permissions.
+	if (frm.doc.workflow_state === 'Approved' && !frm.doc.is_closed) {
+		frm.add_custom_button(__('Contractor Invoice'), () => {
+			frappe.new_doc('Contractor Invoice', {
+				project: frm.doc.project,
+				contractor_contract: frm.doc.name,
+				subcontractor: frm.doc.contractor_name,
+			});
+		}, __('Create'));
+
+		frm.add_custom_button(__('Advance Payment'), () => {
+			// frappe.new_doc()'s prefill dict only ever copies Link/Data/
+			// Select/Dynamic Link fields into the new document - a Table
+			// field like `references` is silently dropped, and even `party`
+			// (which is copied) never fires its own on-change trigger that
+			// way, so paid_to/paid_from never got resolved. Routing this
+			// through set_value/add_child on the real, loaded form instead
+			// fixes both. party's own handler also clear_table()s references
+			// as part of its account-resolution chain, so the reference row
+			// has to be added *after* that promise resolves, not before.
+			//
+			// frappe.new_doc()'s own 3rd-argument callback fires too early -
+			// cur_frm is still the *previous* form (this Subcontractor
+			// Contract) at that point, not yet the new Payment Entry, so
+			// set_value('party', ...) below would throw "Field party not
+			// found" against the wrong doctype. Its *returned promise*
+			// (verified directly against this Frappe version) resolves only
+			// once routing has actually completed and cur_frm is the new
+			// form - use that instead.
+			frappe.db.get_single_value('Contracting Settings', 'subcontractor_payable_account').then((payable_account) => {
+				frappe.new_doc('Payment Entry', {
+					payment_type: 'Pay',
+					party_type: 'Supplier',
+					company: frm.doc.company,
+				}).then(() => {
+					const pe_frm = cur_frm;
+					pe_frm.set_value('party', frm.doc.contractor_name).then(() => {
+						const add_reference = () => {
+							const row = pe_frm.add_child('references', {
+								reference_doctype: 'Subcontractor Contract',
+								reference_name: frm.doc.name,
+							});
+							pe_frm.refresh_field('references');
+							// Reuses the same reference_name trigger a manual
+							// grid selection fires (payment_entry.js), rather
+							// than duplicating its total_amount/outstanding_
+							// amount/allocated_amount logic here.
+							pe_frm.script_manager.trigger('reference_name', row.doctype, row.name);
+						};
+
+						// create_purchase_invoice() already routes generated
+						// Purchase Invoices to this same configured account
+						// when set (Contracting Settings) - the advance and
+						// the invoice it later reconciles into have to land
+						// on the *same* account, or the match fails. party's
+						// own generic account resolution (just above) has no
+						// way to know that, so it's overridden explicitly
+						// here, after that resolution has already run.
+						if (payable_account) {
+							pe_frm.set_value('paid_to', payable_account).then(add_reference);
+						} else {
+							add_reference();
+						}
+					});
+				});
+			});
+		}, __('Create'));
+	}
+
+	// FR-11/12: only on an Approved, still-open contract, and only for the
+	// roles close_contract's own server-side check allows - hiding the
+	// button for everyone else is defense in depth, not the real gate.
+	if (frm.doc.workflow_state === 'Approved' && !frm.doc.is_closed
+		&& frappe.user.has_role(['Contracts Manager', 'System Manager'])) {
+		frm.add_custom_button(__('Close Contract'), () => {
+			frappe.confirm(
+				__('Close this contract? Any never-invoiced remaining quantity will be released back to general availability.'),
+				() => {
+					frappe.call({
+						method: 'contracting.contracting.doctype.subcontractor_contract.subcontractor_contract.close_contract',
+						args: {name: frm.doc.name},
+						callback() { frm.reload_doc(); }
+					});
+				}
+			);
+		});
+	}
 }
 
 // Tender BOQ/Labor/Equipment rows are hash-named, so the readable value comes
@@ -245,15 +351,35 @@ function link_title(doctype, name) {
 	return name ? frappe.utils.get_link_title(doctype, name) || null : null;
 }
 
-// FR-06/FR-09: auto-populate the resource tabs from a work item's own
-// Tender-linked resources, instead of requiring them to be re-picked one by
-// one. Fires from both the work_item and qty handlers below - a manually
-// added row normally gets its work_item picked before its qty is typed, so
-// qty is still 0 at that point; firing again on qty (guarded to run only
-// once per row, via frm.__propagated_rows) catches that without re-running
-// on a later qty edit. The dialog's own add path (render_work_item_dialog)
-// already knows both values up front and calls propagate_resources directly.
+// FR-06/FR-09 (2026-08-30), rescale added 2026-09-12: auto-populate the
+// resource tabs from a work item's own Tender-linked resources, instead of
+// requiring them to be re-picked one by one. Fires from both the work_item
+// and qty handlers below, and is safe to call repeatedly for the same work
+// item: if it has never been propagated before, this is first-time
+// propagation (create fresh, exactly as before, and only once qty is
+// actually non-zero); once it has, every later call is a rescale - only
+// qty/available_qty are updated in place on rows that are still
+// auto_propagated, nothing is created or deleted, so a deleted row (FR-03)
+// or a hand-edited/manually-added row (FR-04/FR-05) is left untouched, and
+// a qty corrected all the way to 0 (FR-10) still updates them rather than
+// being mistaken for "nothing to propagate yet". The owning Contracted
+// Items row's own resources_propagated flag is what lets "rescale, every
+// row since deleted" be told apart from "never propagated" once the
+// resource tables hold no rows either way - a plain "does a current row
+// exist" check can't distinguish those, and FR-03 requires it to. Unlike an
+// in-memory flag, this one is a real field on an already-saved row, so it
+// survives a reload - deleting the last propagated row, saving, reopening
+// the document and editing qty again must still not resurrect it. The
+// dialog's own add path (render_work_item_dialog) calls this directly with
+// both values known up front.
 function propagate_resources(frm, work_item, qty) {
+	const contracted_row = (frm.doc.contracted_items || []).find((row) => row.work_item === work_item);
+	const has_existing = (contracted_row && contracted_row.resources_propagated)
+		|| Object.keys(RESOURCE_TABLES).some((fieldname) =>
+			(frm.doc[fieldname] || []).some((row) => row.work_item === work_item));
+
+	if (!has_existing && !flt(qty)) return;
+
 	frappe.call({
 		method: `${ALLOCATION}.get_propagated_resource_rows`,
 		args: {
@@ -263,20 +389,67 @@ function propagate_resources(frm, work_item, qty) {
 		},
 		callback(r) {
 			const by_table = r.message || {};
+
+			const updates = [];
 			Object.keys(RESOURCE_TABLES).forEach((fieldname) => {
-				(by_table[fieldname] || []).forEach((row) => frm.add_child(fieldname, row));
+				const [, link_fieldname] = RESOURCE_TABLES[fieldname];
+				const [tender_doctype, contract_doctype] = RESOURCE_TITLE_DOCTYPES[fieldname];
+				const new_rows = by_table[fieldname] || [];
+
+				if (!has_existing) {
+					new_rows.forEach((row) => {
+						const added = frm.add_child(fieldname, row);
+						// A propagated row is added via frm.add_child(), which
+						// never calls frappe.utils.add_link_title() the way a
+						// real dropdown selection does - so both the Tender-
+						// side resource link (this table's own grid column)
+						// and the Contractor Contract-side row itself (what
+						// Payment Condition's material_item/labor_item/
+						// equipment_item pickers point at) would otherwise
+						// render as a raw docname until the whole document is
+						// saved for real. Priming both here fixes display
+						// immediately; it doesn't make an unsaved row
+						// *searchable* in Payment Condition's picker, which
+						// still queries the database.
+						if (row[link_fieldname]) {
+							frappe.utils.add_link_title(tender_doctype, row[link_fieldname], row.resource_item);
+						}
+						frappe.utils.add_link_title(contract_doctype, added.name, row.resource_item);
+					});
+				} else {
+					const existing_rows = (frm.doc[fieldname] || []).filter((row) => row.work_item === work_item);
+					new_rows.forEach((new_row) => {
+						const match = existing_rows.find((row) => row[link_fieldname] === new_row[link_fieldname]);
+						if (match && match.auto_propagated) {
+							updates.push(frappe.model.set_value(match.doctype, match.name, 'qty', new_row.qty));
+							updates.push(frappe.model.set_value(match.doctype, match.name, 'available_qty', new_row.available_qty));
+						}
+					});
+				}
 				frm.refresh_field(fieldname);
 			});
+
+			if (!has_existing && contracted_row) {
+				updates.push(frappe.model.set_value(contracted_row.doctype, contracted_row.name, 'resources_propagated', 1));
+			}
+
+			// Guards the qty handlers below (FR-05) from mistaking this
+			// rescale's own writes for a hand edit. set_value's trigger
+			// fires asynchronously, so the flag has to stay up until every
+			// update above has actually resolved, not just until this
+			// forEach returns.
+			frm.__rescaling = true;
+			Promise.all(updates).then(() => { frm.__rescaling = false; });
 		},
 	});
 }
 
 function maybe_propagate_row(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
-	frm.__propagated_rows = frm.__propagated_rows || new Set();
-	if (!row.work_item || !flt(row.qty) || frm.__propagated_rows.has(cdn)) return;
-
-	frm.__propagated_rows.add(cdn);
+	// Whether a qty of 0 is worth acting on (skip first-time creation, still
+	// rescale existing rows down to 0 per FR-10) is propagate_resources' own
+	// call to make now, not this guard's.
+	if (!row.work_item) return;
 	propagate_resources(frm, row.work_item, row.qty);
 }
 
@@ -357,6 +530,14 @@ frappe.ui.form.on('Contractor Contract Labor Item', {
 			},
 		});
 	},
+
+	// FR-05: a direct hand-edit of qty in this tab permanently protects the
+	// row from further rescaling - unless this write is the rescale's own
+	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
+	qty(frm, cdt, cdn) {
+		if (frm.__rescaling) return;
+		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
+	},
 });
 
 frappe.ui.form.on('Contractor Contract Equipment Item', {
@@ -385,6 +566,14 @@ frappe.ui.form.on('Contractor Contract Equipment Item', {
 			},
 		});
 	},
+
+	// FR-05: a direct hand-edit of qty in this tab permanently protects the
+	// row from further rescaling - unless this write is the rescale's own
+	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
+	qty(frm, cdt, cdn) {
+		if (frm.__rescaling) return;
+		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
+	},
 });
 
 frappe.ui.form.on('Contractor Contract Material Item', {
@@ -410,6 +599,14 @@ frappe.ui.form.on('Contractor Contract Material Item', {
 				frappe.model.set_value(cdt, cdn, 'available_qty', r.message);
 			},
 		});
+	},
+
+	// FR-05: a direct hand-edit of qty in this tab permanently protects the
+	// row from further rescaling - unless this write is the rescale's own
+	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
+	qty(frm, cdt, cdn) {
+		if (frm.__rescaling) return;
+		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
 	},
 });
 
@@ -505,12 +702,10 @@ function render_work_item_dialog(frm, rows, invoiced_by_work_item) {
 				delete child.tender;  // display-only, not a field on Contractor Contract Item
 				delete child.item_code;  // display-only, not a field on Contractor Contract Item
 				delete child.contracted;  // display-only, not a field on Contractor Contract Item
-				const added = frm.add_child('contracted_items', child);
+				frm.add_child('contracted_items', child);
 				// FR-06: qty is already known here (get_unallocated_boq_items'
 				// own availability default), so propagate immediately rather
-				// than waiting on the work_item/qty handler guard below.
-				frm.__propagated_rows = frm.__propagated_rows || new Set();
-				frm.__propagated_rows.add(added.name);
+				// than waiting on the work_item/qty handler below.
 				propagate_resources(frm, row.work_item, row.qty);
 			});
 			frm.refresh_field('contracted_items');

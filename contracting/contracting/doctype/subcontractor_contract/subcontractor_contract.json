@@ -19,6 +19,7 @@
   "project_tenders",
   "column_break0",
   "contractor_name",
+  "company",
   "department",
   "type_subcontractor",
   "contract_date",
@@ -38,10 +39,12 @@
   "total_additional_charges",
   "column_break_totals",
   "grand_total",
+  "advance_paid",
   "requires_ceo_approval",
   "attachment_section",
   "attached_contract",
   "workflow_state",
+  "is_closed",
   "material_tab",
   "contract_material_items",
   "labor_tab",
@@ -118,9 +121,17 @@
    "fieldname": "contractor_name",
    "fieldtype": "Link",
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Contractor Name",
    "options": "Supplier",
    "reqd": 1
+  },
+  {
+   "description": "Auto-set to the default Company when blank. This feature does not add multi-company support - a plain default, not a per-contract choice.",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company"
   },
   {
    "fieldname": "department",
@@ -143,6 +154,7 @@
   {
    "fieldname": "contract_date",
    "fieldtype": "Date",
+   "in_standard_filter": 1,
    "label": "Contract Date"
   },
   {
@@ -250,6 +262,14 @@
    "read_only": 1
   },
   {
+   "description": "Maintained by set_total_advance_paid() - sum of allocated_amount across submitted Payment Entry Reference rows referencing this contract.",
+   "fieldname": "advance_paid",
+   "fieldtype": "Currency",
+   "label": "Advance Paid",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "default": "0",
    "description": "Set automatically from Contracting Settings' CEO approval threshold. Drives the conditional CEO step in the approval workflow.",
    "fieldname": "requires_ceo_approval",
@@ -278,6 +298,15 @@
    "no_copy": 1,
    "options": "Workflow State",
    "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Releases any never-invoiced remaining quantity back to general availability. Settable only through the whitelisted close_contract method (Contracts Manager / System Manager) - never by direct form edit.",
+   "fieldname": "is_closed",
+   "fieldtype": "Check",
+   "label": "Closed",
+   "no_copy": 1,
    "read_only": 1
   },
   {

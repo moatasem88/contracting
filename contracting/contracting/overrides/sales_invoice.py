@@ -69,6 +69,34 @@ class CustomSalesInvoice(SalesInvoice):
             }
         ]
 
+    def validate(self):
+        super().validate()
+        self.validate_invoice_percentage_ceiling()
+
+    def validate_invoice_percentage_ceiling(self):
+        """FR-22: regardless of how a row's qty was set (percentage field,
+        direct edit, or Get Items), it can't exceed what's actually left to
+        invoice on that Sales Order Item. FR-18: only enforced when every
+        item row comes from the same single Sales Order - a multi-SO
+        invoice falls back to being a plain, unrestricted invoice."""
+        from contracting.contracting.utils.progress_invoicing import get_sales_order_item_billing_context
+
+        sales_orders = {d.sales_order for d in self.items if d.sales_order}
+        if len(sales_orders) != 1:
+            return
+
+        for d in self.items:
+            if not d.so_detail:
+                continue
+            ctx = get_sales_order_item_billing_context(d.so_detail, exclude_invoice=self.name)
+            available = ctx["ordered_qty"] - ctx["invoiced_qty_excluding_this_draft"]
+            if flt(d.qty) > available + 1e-6:
+                frappe.throw(
+                    _("Row #{0}: quantity ({1}) exceeds what's left to invoice on this Sales Order Item ({2}).").format(
+                        d.idx, d.qty, available
+                    )
+                )
+
     def set_indicator(self):
         """Set indicator for portal"""
         if self.outstanding_amount < 0:

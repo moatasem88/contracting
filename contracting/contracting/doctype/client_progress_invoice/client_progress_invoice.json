@@ -6,6 +6,7 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
+ "is_submittable": 1,
  "field_order": [
   "naming_series",
   "project",
@@ -22,6 +23,7 @@
   "measured_by",
   "approved_by",
   "sales_invoice",
+  "delivery_note",
   "retention_journal_entry",
   "items_section",
   "items",
@@ -102,7 +104,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nMeasured\nApproved\nInvoiced",
+   "options": "Draft\nMeasured\nApproved",
    "read_only": 1
   },
   {
@@ -129,6 +131,15 @@
    "fieldtype": "Link",
    "label": "Sales Invoice",
    "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "description": "Set once by Create → Delivery Note. Blank means that action hasn't been used yet on this claim.",
+   "fieldname": "delivery_note",
+   "fieldtype": "Link",
+   "label": "Delivery Note",
+   "no_copy": 1,
+   "options": "Delivery Note",
    "read_only": 1
   },
   {
@@ -187,6 +198,8 @@
  "owner": "Administrator",
  "permissions": [
   {
+   "amend": 1,
+   "cancel": 1,
    "create": 1,
    "delete": 1,
    "email": 1,
@@ -196,6 +209,46 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Planning Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Company CEO",
+   "share": 1,
+   "submit": 1,
    "write": 1
   }
  ],

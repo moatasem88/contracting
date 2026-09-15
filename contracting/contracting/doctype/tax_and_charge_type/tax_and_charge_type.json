@@ -8,7 +8,13 @@
  "engine": "InnoDB",
  "field_order": [
   "tax_charge_name",
+  "default_cost_category",
   "default_charge_type",
+  "default_description",
+  "default_rate_type",
+  "default_rate",
+  "default_add_deduct_tax",
+  "default_included_in_print_rate",
   "default_account_head"
  ],
  "fields": [
@@ -21,6 +27,12 @@
    "unique": 1
   },
   {
+   "fieldname": "default_cost_category",
+   "fieldtype": "Select",
+   "label": "Default Cost Category",
+   "options": "\nTax\nCharge\nRetention\nMaterial Supplied by Company (Manual Fallback)"
+  },
+  {
    "default": "On Net Total",
    "fieldname": "default_charge_type",
    "fieldtype": "Select",
@@ -28,6 +40,38 @@
    "label": "Default Charge Type",
    "options": "\nActual\nOn Net Total\nOn Previous Row Amount\nOn Previous Row Total\nOn Item Quantity",
    "reqd": 1
+  },
+  {
+   "fieldname": "default_description",
+   "fieldtype": "Small Text",
+   "label": "Default Description"
+  },
+  {
+   "default": "Percentage",
+   "fieldname": "default_rate_type",
+   "fieldtype": "Select",
+   "label": "Default Rate Type",
+   "options": "\nPercentage\nFixed Amount",
+   "reqd": 1
+  },
+  {
+   "description": "Interpreted as a percent or a flat amount depending on Default Rate Type.",
+   "fieldname": "default_rate",
+   "fieldtype": "Float",
+   "label": "Default Rate"
+  },
+  {
+   "default": "Add",
+   "fieldname": "default_add_deduct_tax",
+   "fieldtype": "Select",
+   "label": "Default Add or Deduct",
+   "options": "\nAdd\nDeduct"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_included_in_print_rate",
+   "fieldtype": "Check",
+   "label": "Default Included in Print Rate"
   },
   {
    "fieldname": "default_account_head",
@@ -40,7 +84,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-01 10:00:00.000000",
+ "modified": "2026-09-12 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tax and Charge Type",
@@ -136,6 +180,38 @@
    "read": 1,
    "report": 1,
    "role": "Company CEO"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Purchase User",
+   "select": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Purchase Manager",
+   "select": 1
   }
  ],
  "sort_field": "modified",

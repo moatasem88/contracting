@@ -109,28 +109,49 @@ frappe.ui.form.on('Client Progress Invoice', {
 			});
 		}
 
-		if (frm.doc.status === 'Measured') {
-			frm.add_custom_button(__('Approve && Generate Sales Invoice'), () => {
-				frappe.confirm(
-					__('Approve this Client Progress Invoice and generate a Sales Invoice for {0}?', [format_currency(frm.doc.total_this_period)]),
-					() => {
-						frappe.call({
-							method: 'contracting.contracting.doctype.client_progress_invoice.client_progress_invoice.approve_and_invoice',
-							args: {name: frm.doc.name},
-							callback(r) {
-								frm.reload_doc();
-								if (r.message) {
-									frappe.set_route('sales-invoice', r.message);
-								}
-							}
-						});
+		if (frm.doc.docstatus === 1 && (frm.doc.sales_order || frm.doc.project)) {
+			frm.add_custom_button(__('Sales Invoice'), () => {
+				frappe.call({
+					method: 'contracting.contracting.doctype.client_progress_invoice.client_progress_invoice.create_sales_invoice_from_backlog',
+					args: {name: frm.doc.name},
+					callback(r) {
+						if (r.message) {
+							frm.reload_doc();
+							frappe.set_route('sales-invoice', r.message);
+						}
+						// no r.message: nothing outstanding - server already
+						// showed the no-op msgprint, nothing more to do here.
 					}
-				);
-			}).addClass('btn-primary');
+				});
+			}, __('Create'));
 		}
 
-		if (frm.doc.sales_invoice) {
-			frm.add_custom_button(__('Sales Invoice'), () => frappe.set_route('sales-invoice', frm.doc.sales_invoice), __('View'));
+		if (frm.doc.docstatus === 1 && !frm.doc.delivery_note) {
+			frm.add_custom_button(__('Delivery Note'), () => {
+				frappe.call({
+					method: 'contracting.contracting.doctype.client_progress_invoice.client_progress_invoice.create_delivery_note',
+					args: {name: frm.doc.name},
+					callback(r) {
+						frm.reload_doc();
+						if (r.message) {
+							frappe.set_route('delivery-note', r.message);
+						}
+					}
+				});
+			}, __('Create'));
+		}
+
+		// FR-14: sales_invoice is no longer a 1:1 authoritative link once
+		// billing is a cross-CPI backlog sweep - a filtered list is the
+		// honest view of "every Sales Invoice actually touching this CPI's
+		// lines" instead of trusting that single field.
+		const so_details = (frm.doc.items || []).map(row => row.sales_order_item).filter(Boolean);
+		if (so_details.length) {
+			frm.add_custom_button(__('View Sales Invoices'), () => {
+				frappe.set_route('List', 'Sales Invoice', {
+					'Sales Invoice Item.so_detail': ['in', so_details]
+				});
+			}, __('View'));
 		}
 	}
 });

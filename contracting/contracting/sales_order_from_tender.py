@@ -61,9 +61,11 @@ def create_sales_order_from_tender(tender):
 	so.run_method("set_missing_values")
 	so.run_method("calculate_taxes_and_totals")
 	so.insert(ignore_permissions=True)
-	# Submitted, unlike the Contract Document this replaces: only a submitted
-	# order runs update_project() (populating Project.total_sales_amount), and
-	# only a submitted order can carry so_detail links from progress invoices,
-	# which is what keeps per_billed coherent.
-	so.submit()
+	# Left in Draft, unlike the Contract Document this replaces: a Won-
+	# automation order now needs a review pass (apply a Tax/Charge Type
+	# template, confirm totals) before it's finalized. update_project()
+	# and so_detail linkage (progress invoicing) only kick in once the
+	# user submits - progress invoicing is independently blocked on a
+	# Draft order regardless, so nothing downstream silently proceeds
+	# early.
 	return so

@@ -106,6 +106,7 @@ def install_app_requirements():
     create_jl_setters()
     add_company_custom_script()
     apply_subcontracting_custom_fields()
+    apply_tax_charge_type_fetch_setters()
 
 
 def apply_subcontracting_custom_fields():
@@ -114,6 +115,15 @@ def apply_subcontracting_custom_fields():
     from contracting.contracting.custom_fields import apply_custom_fields
 
     apply_custom_fields()
+
+
+def apply_tax_charge_type_fetch_setters():
+    """Re-assert the fetch_from Property Setters wiring Sales/Purchase
+    Taxes and Charges to custom_tax_charge_type. Idempotent, same
+    reasoning as apply_subcontracting_custom_fields() above."""
+    from contracting.contracting.custom_fields import apply_tax_charge_type_fetch_setters
+
+    apply_tax_charge_type_fetch_setters()
 
 
 WORK_ITEM_GROUP = "Work Item"

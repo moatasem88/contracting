@@ -22,7 +22,9 @@
   "additions_section",
   "additions",
   "totals_section",
-  "total_cost_per_unit"
+  "total_cost_per_unit",
+  "accounting_section",
+  "account"
  ],
  "fields": [
   {
@@ -121,6 +123,18 @@
    "fieldtype": "Currency",
    "label": "Total Cost per Unit",
    "read_only": 1
+  },
+  {
+   "fieldname": "accounting_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "description": "Default cost account for this work item's subcontracting costs. Pre-fills the Contractor Invoice billing-account confirmation popup; can also be set directly here.",
+   "fieldname": "account",
+   "fieldtype": "Link",
+   "label": "Account",
+   "options": "Account"
   }
  ],
  "index_web_pages_for_search": 1,

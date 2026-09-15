@@ -66,6 +66,7 @@ def make_plain_invoice(contract, cumulative_qty_complete):
 	contract_item = contract.contracted_items[0]
 	invoice = frappe.new_doc("Contractor Invoice")
 	invoice.naming_series = "CINV-.YYYY.-"
+	invoice.project = contract.project
 	invoice.contractor_contract = contract.name
 	invoice.append("items", {"contract_item": contract_item.name, "cumulative_qty_complete": cumulative_qty_complete})
 	return invoice
@@ -93,6 +94,7 @@ def make_condition_invoice(contract, cumulative_qty_complete):
 
 	invoice = frappe.new_doc("Contractor Invoice")
 	invoice.naming_series = "CINV-.YYYY.-"
+	invoice.project = contract.project
 	invoice.contractor_contract = contract.name
 	invoice.append("items", {"contract_item": contract_item.name})
 	invoice.append("condition_progress", {
@@ -105,33 +107,37 @@ def make_condition_invoice(contract, cumulative_qty_complete):
 
 class TestContractorInvoice(FrappeTestCase):
 	def test_condition_progress_ceiling_and_rollup(self):
-		"""FR-25-29: a condition's ceiling is its percent share of the
-		line's allocated qty, and Contractor Invoice Item becomes a rollup
-		of the matching condition_progress rows."""
+		"""2026-09-13 payment-condition-payout fix: every condition on a line
+		shares the same, full, unscaled ceiling (the line's own qty) -
+		independently of every other condition - and the condition's percent
+		scales the *amount*, not the ceiling. The items rollup is a
+		value-weighted sum (percent share of each condition's own qty), not
+		a naive one."""
 		contract = make_condition_contract("cond_ceiling", item_qty=10, unit_price=100, condition_percent=30)
 
-		# 30% of 10 = 3 units is this condition's ceiling; claim half of it.
+		# Ceiling is the line's own full qty (10), not 30% of it - claim 1.5.
 		invoice = make_condition_invoice(contract, cumulative_qty_complete=1.5)
 		invoice.insert(ignore_permissions=True)
 
 		row = invoice.condition_progress[0]
-		self.assertAlmostEqual(row.qty_allocated, 3.0, delta=1e-6)
+		self.assertAlmostEqual(row.qty_allocated, 10.0, delta=1e-6)
 		self.assertAlmostEqual(row.this_period_qty, 1.5, delta=1e-6)
-		self.assertAlmostEqual(row.this_period_amount, 1.5 * 100, delta=1e-6)
+		# Amount = qty * rate * condition percent / 100, not qty * rate alone.
+		self.assertAlmostEqual(row.this_period_amount, 1.5 * 100 * 0.30, delta=1e-6)
 		self.assertEqual(row.condition_label, "_Test Condition")
 
 		item_row = invoice.items[0]
-		self.assertAlmostEqual(item_row.cumulative_qty_complete, 1.5, delta=1e-6)
-		# Against the *line's* full qty (10), not this one condition's
-		# ceiling (3) - only this one condition has any progress so far.
-		self.assertAlmostEqual(item_row.percent_complete, 15.0, delta=1e-6)
+		# Weighted rollup: this condition's own qty times its percent share.
+		self.assertAlmostEqual(item_row.cumulative_qty_complete, 1.5 * 0.30, delta=1e-6)
+		self.assertAlmostEqual(item_row.percent_complete, 1.5 * 0.30 / 10 * 100, delta=1e-6)
 
 	def test_condition_progress_ceiling_guard_rejects_overclaim(self):
-		"""FR-27: cumulative qty can't exceed this condition's own share of
-		the line, even though the line's own full qty is much larger."""
+		"""A condition's cumulative qty can't exceed the contract line's own
+		full qty - the only qty-vs-contract validation, evaluated per
+		condition independently of every other condition on the same line."""
 		contract = make_condition_contract("cond_over", item_qty=10, unit_price=100, condition_percent=30)
 
-		invoice = make_condition_invoice(contract, cumulative_qty_complete=5)  # ceiling is 3
+		invoice = make_condition_invoice(contract, cumulative_qty_complete=11)  # ceiling is 10
 		with self.assertRaises(frappe.ValidationError):
 			invoice.insert(ignore_permissions=True)
 
@@ -142,8 +148,7 @@ class TestContractorInvoice(FrappeTestCase):
 
 		first = make_condition_invoice(contract, cumulative_qty_complete=2)
 		first.insert(ignore_permissions=True)
-		first.status = "Invoiced"
-		first.save(ignore_permissions=True)
+		first.submit()
 
 		second = make_condition_invoice(contract, cumulative_qty_complete=1)  # regresses from 2 to 1
 		with self.assertRaises(frappe.ValidationError):

@@ -24,7 +24,8 @@
   "material_budget_tolerance_percent",
   "budget_override_role",
   "subcontracting_section",
-  "ceo_approval_value_threshold"
+  "ceo_approval_value_threshold",
+  "subcontractor_payable_account"
  ],
  "fields": [
   {
@@ -136,6 +137,13 @@
    "fieldname": "ceo_approval_value_threshold",
    "fieldtype": "Currency",
    "label": "CEO Approval Value Threshold"
+  },
+  {
+   "description": "Payable account (and matching naming series, ACC-PINV-Subcontractor-.YYYY.-) create_purchase_invoice() uses for Purchase Invoices generated from a Contractor Invoice, so they land in the subcontractor-specific Payable ledger a Payment Entry can be raised against - the same account/series convention already followed for manually-created subcontractor invoices. Left blank, generated invoices fall back to the normal Supplier default (today's behavior).",
+   "fieldname": "subcontractor_payable_account",
+   "fieldtype": "Link",
+   "label": "Subcontractor Payable Account",
+   "options": "Account"
   }
  ],
  "index_web_pages_for_search": 1,

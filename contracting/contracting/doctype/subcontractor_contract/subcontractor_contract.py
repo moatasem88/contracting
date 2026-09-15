@@ -1,3 +1,4 @@
+import erpnext
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -18,13 +19,13 @@ RETENTION_CHARGE = "Retention"
 MANUAL_FALLBACK_CHARGE = "Material Supplied by Company (Manual Fallback)"
 
 # Payment Condition category -> which contract types actually populate that
-# resource tab (FR-14). Server-side truth, not the JSON depends_on strings -
-# those disagree with this for Labor/Equipment on a Supplying and installing
-# contract (see validate_labor_items / validate_equipment_items below).
+# resource tab (FR-14). Server-side truth, matching validate_labor_items /
+# validate_equipment_items below - Supply and Install populates all three
+# tabs, same as Install Only/Equipment populate their own single one.
 CATEGORY_TYPE_GATE = {
 	"Material": (SUPPLY_AND_INSTALL,),
-	"Labor": LABOR_TYPES,
-	"Equipment": (EQUIPMENT,),
+	"Labor": (*LABOR_TYPES, SUPPLY_AND_INSTALL),
+	"Equipment": (EQUIPMENT, SUPPLY_AND_INSTALL),
 }
 _RESOURCE_FIELD_BY_CATEGORY_REVERSE = {
 	"material_item": "Material",
@@ -36,6 +37,9 @@ _RESOURCE_FIELD_BY_CATEGORY_REVERSE = {
 # rather than introducing a separate override role.
 COST_CONTROL_ROLE = "cost control manager"
 
+# FR-11: who may close a contract.
+CLOSE_CONTRACT_ROLES = ("Contracts Manager", "System Manager")
+
 # Editing the figures is only allowed in Draft (FR-20). Everything else -
 # the pending states, Approved, Rejected - is frozen, so an approver is
 # always looking at the same numbers the next approver will see.
@@ -44,6 +48,7 @@ EDITABLE_STATES = ("", "Draft")
 
 class SubcontractorContract(Document):
 	def validate(self):
+		self.set_default_company()
 		self.set_project_tenders()
 		self.validate_subcontractor()
 		self.enforce_frozen_figures()
@@ -56,6 +61,7 @@ class SubcontractorContract(Document):
 		self.prune_orphaned_payment_condition_resources()
 		self.validate_payment_condition_resources()
 		self.validate_payment_conditions()
+		self.default_charge_cost_centers()
 		self.calculate_totals()
 		self.validate_retention_rows()
 		self.set_ceo_approval_flag()
@@ -72,6 +78,13 @@ class SubcontractorContract(Document):
 		self.validate_equipment_items(lock=True)
 
 	# -- header ------------------------------------------------------------
+
+	def set_default_company(self):
+		"""FR-05: a plain default, not multi-company support - lets
+		Payment Entry's get_reference_details() resolve currency the same
+		way it already does for a Purchase Order reference."""
+		if not self.company:
+			self.company = erpnext.get_default_company()
 
 	def set_project_tenders(self):
 		"""FR-01, extended 2026-08-30: every Tender under the project is in
@@ -153,6 +166,7 @@ class SubcontractorContract(Document):
 				row.get("row_id"),
 				row.get("account_head"),
 				row.get("cost_center"),
+				row.get("rate_type"),
 				flt(row.get("rate")),
 				flt(row.get("tax_amount")),
 				row.get("add_deduct_tax"),
@@ -283,15 +297,20 @@ class SubcontractorContract(Document):
 		self._validate_resource_rows("contract_material_items", MATERIAL_DOCTYPE, "material_item", lock=lock)
 
 	def validate_labor_items(self, lock=False):
-		"""FR-11/19: the Labor tab only applies to Install Only."""
-		if self.type_subcontractor not in LABOR_TYPES:
+		"""FR-11/19: the Labor tab applies to Install Only, and (FR-06,
+		2026-08-30) Supply and Install - RESOURCE_PROPAGATION already
+		declares Supply and Install feeds all three resource tabs; this
+		gate has to agree or it wipes right back out what the client just
+		propagated."""
+		if self.type_subcontractor not in (*LABOR_TYPES, SUPPLY_AND_INSTALL):
 			self.set("contract_labor_items", [])
 			return
 		self._validate_resource_rows("contract_labor_items", LABOR_DOCTYPE, "labor_item", lock=lock)
 
 	def validate_equipment_items(self, lock=False):
-		"""FR-11: the Equipment tab only applies to Equipment contracts."""
-		if self.type_subcontractor != EQUIPMENT:
+		"""FR-11: the Equipment tab applies to Equipment contracts, and
+		(FR-06, 2026-08-30) Supply and Install - see validate_labor_items."""
+		if self.type_subcontractor not in (EQUIPMENT, SUPPLY_AND_INSTALL):
 			self.set("contract_equipment_items", [])
 			return
 		self._validate_resource_rows("contract_equipment_items", EQUIPMENT_DOCTYPE, "equipment_item", lock=lock)
@@ -545,6 +564,28 @@ class SubcontractorContract(Document):
 				  ).format(row.idx, frappe.bold(self.contractor_name or ""))
 			)
 
+	# -- cost center ---------------------------------------------------------
+
+	def default_charge_cost_centers(self):
+		"""FR-18: a blank Additional Costs row's Cost Center defaults from the
+		linked Project, so charges post against the Project's own cost center
+		instead of silently falling through to the Company default further
+		downstream (create_purchase_invoice / create_sales_invoice).
+
+		Only fills blanks - a row with its own Cost Center set (manually, or
+		from an earlier save before the Project had one) is left alone.
+		"""
+		if not self.project:
+			return
+
+		project_cost_center = frappe.db.get_value("Project", self.project, "cost_center")
+		if not project_cost_center:
+			return
+
+		for row in self.additional_costs:
+			if not row.cost_center:
+				row.cost_center = project_cost_center
+
 	# -- totals ------------------------------------------------------------
 
 	def calculate_totals(self):
@@ -568,7 +609,17 @@ class SubcontractorContract(Document):
 		self.grand_total = flt(self.net_total) + flt(total_charges)
 
 	def _compute_charge_amount(self, row):
-		"""FR-06: same 5-way cascade as core Purchase Taxes and Charges."""
+		"""FR-06: same 5-way cascade as core Purchase Taxes and Charges.
+
+		Rate Type overrides that cascade: Fixed Amount means Rate is charged
+		as-is regardless of Charge Type, making Charge Type's base (net
+		total, previous row, item quantity) irrelevant for this row's own
+		amount. Percentage (the default, so every pre-existing row is
+		unaffected) falls through to the cascade unchanged.
+		"""
+		if (row.rate_type or "Percentage") == "Fixed Amount":
+			return flt(row.rate)
+
 		charge_type = row.charge_type or "On Net Total"
 
 		if charge_type == "Actual":
@@ -658,6 +709,37 @@ class SubcontractorContract(Document):
 		threshold = flt(frappe.db.get_single_value("Contracting Settings", "ceo_approval_value_threshold"))
 		self.requires_ceo_approval = 1 if threshold and flt(self.grand_total) >= threshold else 0
 
+	def set_total_advance_paid(self):
+		"""FR-06/FR-09: recomputed from submitted Payment Entry Reference
+		rows referencing this contract - mirrors Purchase Order's own
+		set_total_advance_paid() in spirit (accounts_controller.py), but as
+		a direct sum over Payment Entry Reference rather than a Payment
+		Ledger Entry query, since this doctype carries no PLE infrastructure
+		(it's a plain Document, not an AccountsController).
+
+		Called from custom_payment_entry's update_advance_paid() on Payment
+		Entry submit/cancel, and explicitly from create_purchase_invoice()
+		after an advance is reconciled into a Purchase Invoice - that path
+		doesn't go through Payment Entry submit/cancel, so nothing else
+		would refresh this value there.
+
+		A direct frappe.db.set_value, not a full save: this runs
+		mid-transaction from other doctypes' code and shouldn't re-trigger
+		this document's own validate().
+		"""
+		advance_paid = flt(frappe.db.sql(
+			"""
+			select sum(per.allocated_amount)
+			from `tabPayment Entry Reference` per
+			inner join `tabPayment Entry` pe on pe.name = per.parent
+			where per.reference_doctype = 'Subcontractor Contract'
+			  and per.reference_name = %s
+			  and pe.docstatus = 1
+			""",
+			self.name,
+		)[0][0] or 0)
+		frappe.db.set_value("Subcontractor Contract", self.name, "advance_paid", advance_paid)
+
 
 def get_project_tenders(project, department=None):
 	"""FR-01, extended 2026-08-30: every Tender in scope for a project, not
@@ -719,6 +801,27 @@ def get_project_tenders_for_project(project, department=None):
 	of reading Project.tender directly, so both resolve the same way.
 	"""
 	return get_project_tenders(project, department)
+
+
+@frappe.whitelist()
+def close_contract(name):
+	"""FR-11: marks a contract Closed, releasing any never-invoiced
+	remaining quantity back to general availability (allocation.
+	get_supply_install_committed reads is_closed on every call). Server-side
+	role gate - the "Close Contract" button is also hidden client-side for
+	other roles as defense in depth, matching material_conflict_override's
+	own role-restriction pattern above."""
+	if not set(frappe.get_roles(frappe.session.user)) & set(CLOSE_CONTRACT_ROLES):
+		frappe.throw(
+			_("Only {0} may close a contract.").format(" or ".join(CLOSE_CONTRACT_ROLES)),
+			frappe.PermissionError,
+		)
+
+	workflow_state = frappe.db.get_value("Subcontractor Contract", name, "workflow_state")
+	if workflow_state != "Approved":
+		frappe.throw(_("Only an Approved contract can be closed."))
+
+	frappe.db.set_value("Subcontractor Contract", name, "is_closed", 1)
 
 
 def find_material_conflicts(work_item):

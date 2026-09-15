@@ -16,7 +16,11 @@
   "qty",
   "unit_price",
   "amount",
-  "material_conflict_override"
+  "progress_percentage",
+  "invoiced_percentage",
+  "paid_percentage",
+  "material_conflict_override",
+  "resources_propagated"
  ],
  "fields": [
   {
@@ -102,10 +106,42 @@
    "read_only": 1
   },
   {
+   "description": "Amount claimed via submitted Contractor Invoices against this line, as a percent of Amount above. Recomputed on Contractor Invoice submit/cancel.",
+   "fieldname": "progress_percentage",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Progress %",
+   "read_only": 1
+  },
+  {
+   "description": "Amount that has reached a submitted Purchase Invoice for this line, as a percent of Amount above - a separate, later gate than Progress % (a Contractor Invoice can be Approved while its generated Purchase Invoice is still working through its own approval workflow). Recomputed on Purchase Invoice submit/cancel.",
+   "fieldname": "invoiced_percentage",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Invoiced %",
+   "read_only": 1
+  },
+  {
+   "description": "Amount actually paid via submitted Payment Entries against this line's Purchase Invoice(s), as a percent of Amount above - prorated across a Purchase Invoice's own lines by each line's share of that invoice's grand_total when one payment covers several lines. Recomputed on Payment Entry submit/cancel.",
+   "fieldname": "paid_percentage",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Paid %",
+   "read_only": 1
+  },
+  {
    "description": "Only the 'cost control manager' role may set this, and only once at least one conflicting line is tagged for subcontractor deduction. The conflicting requests are listed in the Material Conflicts section below.",
    "fieldname": "material_conflict_override",
    "fieldtype": "Check",
    "label": "Material Conflict Override"
+  },
+  {
+   "description": "Whether this work item's Material/Labor/Equipment rows have ever been auto-propagated - kept even after every such row is later deleted, so a further qty edit rescales (or does nothing) instead of re-creating what was deliberately removed.",
+   "default": "0",
+   "fieldname": "resources_propagated",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Resources Propagated"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -149,12 +149,51 @@ def _committed(doctype, where, params, exclude_contract=None):
 
 
 def get_supply_install_committed(work_item, exclude_contract=None):
-	"""Item-level quantity committed to submitted Supply-and-Install contracts."""
-	return _committed(
+	"""Item-level quantity committed to submitted Supply-and-Install
+	contracts. FR-13: an open contract's rows count in full (unchanged); a
+	*closed* contract's rows are capped at what's actually been invoiced
+	against them - the difference becomes available to other contracts on
+	the same work item. Kept as two separate sums rather than a parameter
+	threaded through the shared _committed() helper, so get_labor_committed/
+	get_equipment_committed/get_material_committed - which have no notion of
+	is_closed - are untouched."""
+	open_committed = _committed(
 		"Contractor Contract Item",
-		"t.work_item = %(work_item)s and sc.type_subcontractor = %(type)s",
+		"t.work_item = %(work_item)s and sc.type_subcontractor = %(type)s and sc.is_closed = 0",
 		{"work_item": work_item, "type": SUPPLY_AND_INSTALL},
 		exclude_contract,
+	)
+	return open_committed + _closed_contract_supply_install_committed(work_item, exclude_contract)
+
+
+def _closed_contract_supply_install_committed(work_item, exclude_contract=None):
+	"""FR-13: a closed Supply-and-Install contract's contribution is capped,
+	per Contractor Contract Item row, at what's actually been invoiced
+	(docstatus=1) against it - not its full contracted qty. Computed on
+	read (no stored field, no hook to keep in sync), the same join shape
+	progress_invoicing.get_invoiced_qty_for_work_item already uses."""
+	params = {"work_item": work_item, "type": SUPPLY_AND_INSTALL, "exclude": exclude_contract or ""}
+	return flt(
+		frappe.db.sql(
+			"""
+			select coalesce(sum(least(cci.qty, coalesce(invoiced.qty, 0))), 0)
+			from `tabContractor Contract Item` cci
+			inner join `tabSubcontractor Contract` sc on sc.name = cci.parent
+			left join (
+				select cii.contract_item, coalesce(sum(cii.this_period_qty), 0) as qty
+				from `tabContractor Invoice Item` cii
+				inner join `tabContractor Invoice` ci on ci.name = cii.parent
+				where ci.docstatus = 1
+				group by cii.contract_item
+			) invoiced on invoiced.contract_item = cci.name
+			where cci.work_item = %(work_item)s
+			  and sc.type_subcontractor = %(type)s
+			  and sc.docstatus = 1
+			  and sc.is_closed = 1
+			  and sc.name != %(exclude)s
+			""",
+			params,
+		)[0][0]
 	)
 
 
@@ -316,31 +355,40 @@ def _work_item_for_resource(resource_row):
 	return row
 
 
-def _item_level_availability(work_item_row, exclude_contract=None):
-	"""The work item's own remaining quantity, with no per-resource
-	bottleneck applied - used for an Installing/Equipment claim that names
-	only the work item, not a specific resource row yet (2026-08-30: the
-	unified "Select Work Item" dialog, and an Addendum item once FR-16
-	stopped requiring one).
+def _item_level_availability(work_item_row, contract_type, exclude_contract=None):
+	"""The work item's remaining quantity for an Installing/Equipment claim
+	that names only the work item, not a specific resource row yet
+	(2026-08-30: the unified "Select Work Item" dialog, and an Addendum item
+	once FR-16 stopped requiring one).
 
-	Only Supply and Install ever draws down the item's own quantity pool
-	directly (Installing/Equipment commitments live on their own resource
-	rows instead - get_labor_committed/get_equipment_committed - so this
-	only ever needs to net out Supply and Install's own share, the same
-	starting point get_supply_install_availability itself uses before it
-	applies its own additional resource-bottleneck cap.
+	Nets out Supply and Install's own item-level share (the only type that
+	draws down the item's quantity pool directly) *and* applies the same
+	resource-row bottleneck get_supply_install_availability's own loop uses
+	(quantity - committed - direct/ratio per row), restricted to the one
+	resource doctype contract_type actually claims - so a work item whose
+	labor/equipment rows are already directly committed elsewhere shows
+	that here too, not just once a specific row is picked.
 
-	Deliberately simpler than that cap: this can show a work item as
-	"available" even when one of its specific labor/equipment rows is
-	actually tighter - the real, precise guard is still
-	SubcontractorContract._validate_resource_rows at save time (for the
-	base contract's own dialog/manual-add paths) and the matching guard in
-	apply_on_approval (for the Addendum path, which never runs the base
-	contract's own validate()).
+	The real, final guard is still SubcontractorContract._validate_resource_rows
+	at save time (for the base contract's own dialog/manual-add paths) and
+	the matching guard in apply_on_approval (for the Addendum path, which
+	never runs the base contract's own validate()) - this is a preview for
+	display/dialog purposes, kept in the same shape as that guard's own math
+	so the two don't drift, not a replacement for it.
 	"""
 	quantity = flt(work_item_row.original_quantity)
 	committed = get_supply_install_committed(work_item_row.name, exclude_contract)
-	return max(0.0, quantity - committed)
+	available = quantity - committed
+
+	resource_doctype = LABOR_DOCTYPE if contract_type in LABOR_TYPES else EQUIPMENT_DOCTYPE
+	for row in get_resource_rows(resource_doctype, work_item_row):
+		ratio = flt(row.qty_per_unit)
+		if ratio <= TOLERANCE:
+			continue
+		direct = _direct_committed(resource_doctype, row.name, exclude_contract)
+		available = min(available, quantity - committed - (direct / ratio))
+
+	return max(0.0, available)
 
 
 def get_row_availability(contract_type, work_item, labor_item=None, equipment_item=None,
@@ -359,14 +407,14 @@ def get_row_availability(contract_type, work_item, labor_item=None, equipment_it
 
 	if contract_type in LABOR_TYPES:
 		if not labor_item:
-			return _item_level_availability(work_item_row, exclude_contract)
+			return _item_level_availability(work_item_row, contract_type, exclude_contract)
 		return get_resource_availability(
 			LABOR_DOCTYPE, labor_item, exclude_contract=exclude_contract, work_item_row=work_item_row
 		)
 
 	if contract_type == EQUIPMENT:
 		if not equipment_item:
-			return _item_level_availability(work_item_row, exclude_contract)
+			return _item_level_availability(work_item_row, contract_type, exclude_contract)
 		return get_resource_availability(
 			EQUIPMENT_DOCTYPE, equipment_item, exclude_contract=exclude_contract,
 			work_item_row=work_item_row
@@ -437,6 +485,7 @@ def _propagated_resource_rows(work_item_row, contracted_qty, contract_type, subc
 					resource_doctype, resource_row.name,
 					exclude_contract=subcontractor_contract, work_item_row=work_item_row,
 				),
+				"auto_propagated": 1,
 			})
 		result[table_fieldname] = rows
 	return result

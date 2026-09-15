@@ -6,7 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from contracting.contracting.api import create_work_item_group
 from contracting.contracting.doctype.client_progress_invoice.client_progress_invoice import (
-	approve_and_invoice,
+	create_sales_invoice_from_backlog,
 	get_project_sales_orders,
 	get_sales_order_items,
 )
@@ -117,8 +117,9 @@ class TestClientProgressInvoice(FrappeTestCase):
 		cpi.insert(ignore_permissions=True)
 		cpi.status = "Measured"
 		cpi.save(ignore_permissions=True)
+		cpi.submit()
 
-		si = frappe.get_doc("Sales Invoice", approve_and_invoice(cpi.name))
+		si = frappe.get_doc("Sales Invoice", create_sales_invoice_from_backlog(cpi.name))
 		line = si.items[0]
 
 		self.assertEqual(line.item_code, so.items[0].item_code)
@@ -140,7 +141,8 @@ class TestClientProgressInvoice(FrappeTestCase):
 		cpi.insert(ignore_permissions=True)
 		cpi.status = "Measured"
 		cpi.save(ignore_permissions=True)
-		frappe.get_doc("Sales Invoice", approve_and_invoice(cpi.name)).submit()
+		cpi.submit()
+		frappe.get_doc("Sales Invoice", create_sales_invoice_from_backlog(cpi.name)).submit()
 
 		so.reload()
 		self.assertAlmostEqual(so.per_billed, 40, places=2)
@@ -152,9 +154,9 @@ class TestClientProgressInvoice(FrappeTestCase):
 		first.insert(ignore_permissions=True)
 		first.status = "Measured"
 		first.save(ignore_permissions=True)
-		approve_and_invoice(first.name)
+		first.submit()
 
-		# get_sales_order_items seeds from the prior invoiced claim, since
+		# get_sales_order_items seeds from the prior submitted claim, since
 		# the claim is cumulative and cannot regress.
 		rows = get_sales_order_items(so.name)
 		self.assertEqual(rows[0]["cumulative_qty_complete"], 4)
@@ -170,7 +172,7 @@ class TestClientProgressInvoice(FrappeTestCase):
 		first.insert(ignore_permissions=True)
 		first.status = "Measured"
 		first.save(ignore_permissions=True)
-		approve_and_invoice(first.name)
+		first.submit()
 
 		with self.assertRaises(frappe.ValidationError):
 			make_cpi(so, cumulative=2).insert(ignore_permissions=True)
@@ -180,6 +182,55 @@ class TestClientProgressInvoice(FrappeTestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			make_cpi(so, cumulative=11).insert(ignore_permissions=True)
+
+	def test_invoiced_tracking_refreshes_without_resaving_cpi(self):
+		so = won_sales_order("InvTrack", qty=10)
+
+		cpi = make_cpi(so, cumulative=4)
+		cpi.insert(ignore_permissions=True)
+		cpi.status = "Measured"
+		cpi.save(ignore_permissions=True)
+		cpi.submit()
+
+		si = frappe.get_doc("Sales Invoice", create_sales_invoice_from_backlog(cpi.name))
+		si.submit()
+
+		# FR-08/09: refreshed via the Sales Invoice on_submit hook - reload
+		# only, the CPI itself is never resaved.
+		cpi.reload()
+		row = cpi.items[0]
+		self.assertEqual(row.invoiced_qty, 4)
+		self.assertAlmostEqual(row.invoiced_percent, 40, places=2)
+		self.assertEqual(row.outstanding_qty, 0)
+
+		si.cancel()
+		cpi.reload()
+		row = cpi.items[0]
+		self.assertEqual(row.invoiced_qty, 0)
+		self.assertEqual(row.outstanding_qty, 4)
+
+	def test_create_sales_invoice_from_backlog_sweeps_prior_cpi(self):
+		so = won_sales_order("Backlog", qty=10)
+
+		cpi_a = make_cpi(so, cumulative=4)
+		cpi_a.insert(ignore_permissions=True)
+		cpi_a.status = "Measured"
+		cpi_a.save(ignore_permissions=True)
+		cpi_a.submit()  # never billed
+
+		cpi_b = make_cpi(so, cumulative=7)
+		cpi_b.insert(ignore_permissions=True)
+		cpi_b.status = "Measured"
+		cpi_b.save(ignore_permissions=True)
+		cpi_b.submit()
+
+		# TC-05: billing from CPI-B's own Create button covers the full 70%
+		# worth (CPI-A's 40% plus CPI-B's own delta), not just its own share.
+		si = frappe.get_doc("Sales Invoice", create_sales_invoice_from_backlog(cpi_b.name))
+		self.assertEqual(si.items[0].qty, 7)
+
+		si.submit()
+		self.assertIsNone(create_sales_invoice_from_backlog(cpi_b.name))
 
 	def test_source_must_be_unambiguous(self):
 		so = won_sales_order("Mixed")
@@ -274,9 +325,10 @@ class TestClientProgressInvoice(FrappeTestCase):
 		cpi.insert(ignore_permissions=True)
 		cpi.status = "Measured"
 		cpi.save(ignore_permissions=True)
-		approve_and_invoice(cpi.name)
+		cpi.submit()
 		cpi.reload()
-		self.assertEqual(cpi.status, "Invoiced")
+		self.assertEqual(cpi.docstatus, 1)
+		self.assertEqual(cpi.status, "Approved")
 
 		recompute_and_save(project.name)
 
@@ -284,3 +336,13 @@ class TestClientProgressInvoice(FrappeTestCase):
 		self.assertAlmostEqual(
 			project.total_progress_client_invoiced_amount, cpi.total_this_period, places=2
 		)
+
+		# FR-26/TC-13: on_update already fires through cancel() too (Frappe's
+		# submit()/cancel() both route through save()) - this is the first
+		# time it matters for *this* doctype's on_update, since it only
+		# started running through a real submit/cancel transition once CPI
+		# became submittable.
+		cpi.cancel()
+		recompute_and_save(project.name)
+		project.reload()
+		self.assertEqual(project.total_progress_client_invoiced_amount, 0)

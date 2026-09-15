@@ -11,7 +11,8 @@
   "labor_item",
   "resource_item",
   "available_qty",
-  "qty"
+  "qty",
+  "auto_propagated"
  ],
  "fields": [
   {
@@ -60,6 +61,13 @@
    "in_list_view": 1,
    "label": "Qty",
    "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_propagated",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Auto Propagated"
   }
  ],
  "index_web_pages_for_search": 1,

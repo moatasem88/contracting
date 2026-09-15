@@ -1,6 +1,6 @@
 import frappe
 import erpnext
-from erpnext.accounts.utils import get_account_currency, get_fiscal_year
+from erpnext.accounts.utils import get_account_currency, get_fiscal_year, update_voucher_outstanding
 from frappe.utils import cint, cstr, flt, formatdate, get_link_to_form, getdate, nowdate
 from frappe import _, throw
 from erpnext.accounts.doctype.gl_entry.gl_entry import update_outstanding_amt
@@ -97,13 +97,32 @@ class CustomPurchaseInvoice(PurchaseInvoice):
                             )
 
                 if update_outstanding == "No":
-                    update_outstanding_amt(
-                        self.credit_to,
-                        "Supplier",
-                        self.supplier,
-                        self.doctype,
-                        self.return_against if cint(self.is_return) and self.return_against else self.name,
-                    )
+                    if self.get("advances"):
+                        # FR-11: update_against_document_in_jv() (called
+                        # earlier in on_submit, before make_gl_entries)
+                        # already moved the advance's allocation onto this
+                        # invoice via the Payment Ledger Entry system, but
+                        # couldn't set outstanding_amount at that point -
+                        # get_voucher_outstandings had nothing to net the
+                        # advance against yet, since this invoice's own PLE
+                        # row (created by make_gl_entries, just above) didn't
+                        # exist until now. The legacy update_outstanding_amt()
+                        # below sums the old GL Entry table instead, which the
+                        # advance adjustment never touches (
+                        # create_payment_ledger_entry only writes Payment
+                        # Ledger Entry) - it would stomp the correct figure
+                        # back to the pre-reconciliation one, so use the same
+                        # PLE-based recompute here instead, now that both PLE
+                        # rows exist.
+                        update_voucher_outstanding(self.doctype, self.name, self.credit_to, "Supplier", self.supplier)
+                    else:
+                        update_outstanding_amt(
+                            self.credit_to,
+                            "Supplier",
+                            self.supplier,
+                            self.doctype,
+                            self.return_against if cint(self.is_return) and self.return_against else self.name,
+                        )
 
             elif self.docstatus == 2 and cint(self.update_stock) and self.auto_accounting_for_stock:
                 make_reverse_gl_entries(voucher_type=self.doctype, voucher_no=self.name)

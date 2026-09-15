@@ -158,10 +158,137 @@ CUSTOM_FIELDS = {
 			"depends_on": "eval:doc.%s" % DEDUCTION_CHECK,
 			"description": "Ledger account the subcontractor deduction posts against. Chosen per invoice by the accountant; required once any line is flagged.",
 		},
+		{
+			"fieldname": "custom_contractor_invoice",
+			"fieldtype": "Link",
+			"options": "Contractor Invoice",
+			"label": "Contractor Invoice",
+			"insert_after": "project",
+			"read_only": 1,
+			"description": "The Contractor Invoice this Purchase Invoice was generated from, when applicable. Set by create_purchase_invoice() at generation time.",
+		},
+		{
+			"fieldname": "subcontractor_contract",
+			"fieldtype": "Link",
+			"options": "Subcontractor Contract",
+			"label": "Subcontractor Contract",
+			"insert_after": "custom_contractor_invoice",
+			"read_only": 1,
+			"no_copy": 1,
+			"description": "The Subcontractor Contract this Purchase Invoice traces back to, via its source Contractor Invoice. Set by create_purchase_invoice() at generation time - a direct field so it can show under the contract's own Connections, which can't reach a two-hop relation.",
+		},
+		{
+			"fieldname": "custom_invoice_attachment",
+			"fieldtype": "Attach",
+			"label": "Subcontractor Invoice Attachment",
+			"insert_after": "custom_contractor_invoice",
+			"read_only": 1,
+			"description": "Independent copy of the source Contractor Invoice's own Invoice Attachment, when it had one.",
+		},
+		{
+			"fieldname": "custom_checklist_attachment",
+			"fieldtype": "Attach",
+			"label": "Cost Control Checklist",
+			"insert_after": "custom_invoice_attachment",
+			"read_only": 1,
+			"description": "Independent copy of the source Contractor Invoice's own Cost Control Checklist, when it had one.",
+		},
 	],
 	"Purchase Invoice Item": _work_item_field("item_code") + _deduction_item_fields(
 		"custom_project_work_item", read_only=1
-	),
+	) + [
+		{
+			"fieldname": "custom_contract_item",
+			"fieldtype": "Link",
+			"options": "Contractor Contract Item",
+			"label": "Contract Item",
+			"insert_after": "custom_project_work_item",
+			"read_only": 1,
+			"description": "The exact Contractor Contract Item line this PI row was generated from, when applicable - finer-grained than custom_project_work_item (which points at the coarser Project BOQ Item and can't disambiguate between multiple contract lines/contracts sharing one BOQ work item). Feeds Contractor Contract Item's invoiced_percentage/paid_percentage. Set by create_purchase_invoice() at generation time.",
+		},
+		{
+			"fieldname": "custom_payment_condition",
+			"fieldtype": "Data",
+			"label": "Payment Condition",
+			"insert_after": "rate",
+			"read_only": 1,
+			"description": "The Payment Condition this line was billed against (e.g. 'on supply'), when the source contract billed per condition. Blank for a plain-contract-sourced row. Free text, not a Link - same reasoning as Contractor Invoice Condition Progress's own condition_label.",
+		},
+		{
+			"fieldname": "custom_payout_rate",
+			"fieldtype": "Percent",
+			"label": "Payout Rate",
+			"insert_after": "custom_payment_condition",
+			"read_only": 1,
+			"description": "The payment-condition percent this line's rate was scaled by (100 for a plain-contract-sourced row). System-set only.",
+		},
+	],
+	"Sales Taxes and Charges": [
+		{
+			"fieldname": "custom_tax_charge_type",
+			"fieldtype": "Link",
+			"options": "Tax and Charge Type",
+			"label": "Tax / Charge Type",
+			"insert_after": "charge_type",
+		},
+	],
+	"Purchase Taxes and Charges": [
+		{
+			"fieldname": "custom_tax_charge_type",
+			"fieldtype": "Link",
+			"options": "Tax and Charge Type",
+			"label": "Tax / Charge Type",
+			"insert_after": "charge_type",
+		},
+	],
+	# Added via Customize Form in the UI, backfilled here to bring them
+	# under version control (same reasoning as the module docstring).
+	# custom_unit_'s trailing underscore (and its label's trailing space) on
+	# Template Material Item V2 is a live typo, kept verbatim rather than
+	# "fixed" - update=True can't rename a fieldname, so cleaning it up
+	# would require a separate migration to retire the old field.
+	"Template Material Item V2": [
+		{
+			"fieldname": "custom_item_name",
+			"fieldtype": "Data",
+			"label": "Item Name",
+			"insert_after": "item",
+		},
+		{
+			"fieldname": "custom_unit_",
+			"fieldtype": "Data",
+			"label": "Unit ",
+			"insert_after": "amount",
+		},
+	],
+	"Template Labor Item V2": [
+		{
+			"fieldname": "custom_item_name",
+			"fieldtype": "Data",
+			"label": "Item Name",
+			"insert_after": "item",
+		},
+		{
+			"fieldname": "custom_unit",
+			"fieldtype": "Data",
+			"label": "Unit",
+			"insert_after": "amount",
+		},
+	],
+	"Template Equipment Item V2": [
+		{
+			"fieldname": "custom_item_name",
+			"fieldtype": "Data",
+			"label": "Item Name",
+			"insert_after": "item",
+		},
+		{
+			"fieldname": "custom_unit",
+			"fieldtype": "Data",
+			"label": "Unit",
+			"insert_after": "amount",
+		},
+	],
 }
 
 
@@ -171,6 +298,46 @@ def apply_custom_fields():
 	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 	create_custom_fields(CUSTOM_FIELDS, update=True)
+
+
+# Historical fetch_from wiring for the Link above - REMOVED. Frappe's Link
+# control clears every fetch_from target the instant it parses an empty
+# value (control/link.js validate_link_and_fetch(): the `else` branch calls
+# update_dependant_fields({}), which blanks every mapped field via
+# frappe.model.set_value(..., "")) - not only on a real edit but on any
+# re-parse of the row (confirmed: opening a grid row's detail panel re-parses
+# every control against its current value). Since custom_tax_charge_type is
+# an optional convenience field left blank on most rows, this wiring
+# silently wiped the mandatory native `description` (and charge_type/
+# account_head/rate/...) back to blank well after the user had typed them,
+# surfacing only at save as "Value missing for: Description". Replaced by an
+# explicit custom_tax_charge_type change-handler (public/js/tax_charge_type.js)
+# that copies defaults only on a genuine selection and never touches these
+# fields when the link is blank - the same "explicit, not fetch_from" fix
+# already used for Contractor Invoice Condition Progress.condition_label.
+PROPERTY_SETTERS = [
+	("Sales Taxes and Charges", "charge_type"),
+	("Sales Taxes and Charges", "account_head"),
+	("Sales Taxes and Charges", "description"),
+	("Sales Taxes and Charges", "rate"),
+	("Sales Taxes and Charges", "included_in_print_rate"),
+	("Purchase Taxes and Charges", "charge_type"),
+	("Purchase Taxes and Charges", "account_head"),
+	("Purchase Taxes and Charges", "description"),
+	("Purchase Taxes and Charges", "rate"),
+	("Purchase Taxes and Charges", "included_in_print_rate"),
+	("Purchase Taxes and Charges", "add_deduct_tax"),
+]
+
+
+def apply_tax_charge_type_fetch_setters():
+	"""Retract the fetch_from Property Setters above wherever a past
+	migrate already created them - see the comment on PROPERTY_SETTERS.
+	Idempotent: delete_property_setter() no-ops when none exists."""
+	from frappe.custom.doctype.property_setter.property_setter import delete_property_setter
+
+	for doctype, fieldname in PROPERTY_SETTERS:
+		delete_property_setter(doctype, "fetch_from", fieldname)
 
 
 def custom_field_names():
