@@ -14,7 +14,7 @@ frappe.ui.form.on('Work Item Template V2', {
 	onload(frm) { set_item_queries(frm); },
 	refresh(frm) {
 		set_item_queries(frm);
-		calculate_totals(frm);
+		calculate_totals(frm, {from_refresh: true});
 	},
 	material_items_add(frm) { calculate_totals(frm); },
 	material_items_remove(frm) { calculate_totals(frm); },
@@ -35,7 +35,8 @@ frappe.ui.form.on('Work Item Template V2', {
 
 frappe.ui.form.on('Work Item Template Addition', {
 	value(frm, cdt, cdn) { calculate_totals(frm); },
-	calculation_type(frm, cdt, cdn) { calculate_totals(frm); }
+	calculation_type(frm, cdt, cdn) { calculate_totals(frm); },
+	per_unit_item(frm, cdt, cdn) { calculate_totals(frm); }
 });
 
 function set_item_queries(frm) {
@@ -44,7 +45,7 @@ function set_item_queries(frm) {
 	frm.set_query('item', 'equipment_items', () => ({filters: {item_group: 'Equipment'}}));
 }
 
-function calculate_totals(frm) {
+function calculate_totals(frm, opts) {
 	let base_cost = 0;
 	['material_items', 'labor_items', 'equipment_items'].forEach(fieldname => {
 		(frm.doc[fieldname] || []).forEach(row => {
@@ -53,13 +54,28 @@ function calculate_totals(frm) {
 		});
 	});
 
-	let additions_pct = 0, fixed = 0;
+	// Mirrors WorkItemTemplateV2.calculate_totals() - per-unit Fixed
+	// Amounts are part of the per-unit cost, lump sums are reported
+	// separately. per_unit_item is ignored on Percentage rows.
+	let additions_pct = 0, fixed_per_unit = 0, fixed_lump_sum = 0;
 	(frm.doc.additions || []).forEach(a => {
 		if (a.calculation_type === 'Percentage') additions_pct += (a.value || 0);
-		else if (a.calculation_type === 'Fixed Amount') fixed += (a.value || 0);
+		else if (a.calculation_type === 'Fixed Amount') {
+			if (a.per_unit_item) fixed_per_unit += (a.value || 0);
+			else fixed_lump_sum += (a.value || 0);
+		}
 	});
 
-	frm.set_value('total_cost_per_unit', base_cost * (1 + additions_pct / 100) + fixed);
+	// On refresh() only write back when the form is new or already
+	// dirty - a rounding difference against the saved server values must
+	// never mark a clean template dirty on open (same idiom as tender.js).
+	if (!(opts && opts.from_refresh) || frm.doc.__islocal || frm.is_dirty()) {
+		let total_additions = base_cost * additions_pct / 100 + fixed_per_unit;
+		frm.set_value('total_work_item_cost', base_cost);
+		frm.set_value('total_additions', total_additions);
+		frm.set_value('total_cost_per_unit', base_cost + total_additions);
+		frm.set_value('total_fixed_lump_sum', fixed_lump_sum);
+	}
 	frm.refresh_field('material_items');
 	frm.refresh_field('labor_items');
 	frm.refresh_field('equipment_items');

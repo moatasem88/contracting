@@ -195,3 +195,73 @@ class TestTender(FrappeTestCase):
 		self.assertAlmostEqual(row.indirect_cost_amount, 0)
 		self.assertAlmostEqual(row.amount, 110)
 
+
+	# ---------- Per-unit vs lump-sum fixed additions (2026-10-13 BRD) ----------
+
+	def make_per_unit_tender(self, project_name, qty):
+		"""TC-07: pull template T (resources 100/unit, 10%, Fixed 5 per
+		unit, Fixed 50 lump) through the server-side append path."""
+		from contracting.contracting.doctype.tender.tender import add_boq_item_from_template
+		from contracting.contracting.doctype.work_item_template_v2.test_work_item_template_v2 import (
+			brd_additions,
+			make_priced_template,
+		)
+
+		template = make_priced_template("_Test WIT Per Unit Tender", brd_additions())
+		tender = make_tender(project_name, qty=1)
+		tender.boq_items = []
+		tender.save(ignore_permissions=True)
+		add_boq_item_from_template(tender.name, template.name, original_quantity=qty)
+		tender.reload()
+		return tender
+
+	def test_pull_sets_per_unit_and_lump_sum(self):
+		"""TC-07: additions = 1000 x 10% + 5 x 10 + 50 = 200."""
+		tender = self.make_per_unit_tender("_Test Per Unit Pull", qty=10)
+		row = tender.boq_items[0]
+
+		self.assertAlmostEqual(row.other_additions_pct, 10)
+		self.assertAlmostEqual(row.fixed_additions_per_unit, 5)
+		self.assertAlmostEqual(row.fixed_additions, 50)
+		self.assertAlmostEqual(row.boq_direct_cost, 1000 + 200)
+		self.assertAlmostEqual(tender.total_additions, 200)
+
+	def test_quantity_change_rescales_per_unit_only(self):
+		"""TC-05: qty 10 -> 20 gives 2000 x 10% + 5 x 20 + 50 = 350."""
+		tender = self.make_per_unit_tender("_Test Per Unit Rescale", qty=10)
+		tender.boq_items[0].original_quantity = 20
+		tender.save(ignore_permissions=True)
+		tender.reload()
+
+		self.assertAlmostEqual(tender.boq_items[0].boq_direct_cost, 2000 + 350)
+		self.assertAlmostEqual(tender.total_additions, 350)
+
+	def test_zero_quantity_keeps_lump_sum(self):
+		"""TC-08: no quantity -> no per-unit contribution, lump sum stays."""
+		tender = make_tender("_Test Per Unit Zero Qty", qty=0)
+		tender.boq_items[0].fixed_additions_per_unit = 5
+		tender.boq_items[0].fixed_additions = 50
+		tender.save(ignore_permissions=True)
+
+		self.assertAlmostEqual(tender.boq_items[0].boq_direct_cost, 50)
+		self.assertAlmostEqual(tender.total_additions, 50)
+
+	def test_legacy_lump_sum_row_unchanged(self):
+		"""TC-09: a row with only fixed_additions (as every pre-deploy row
+		has) costs exactly what it did - fixed_additions_per_unit defaults
+		to 0."""
+		tender = make_tender("_Test Per Unit Legacy", qty=10)
+		tender.boq_items[0].fixed_additions = 50
+		tender.append("labor_items", {
+			"work_item": tender.boq_items[0].idx,
+			"item": "_Test Tender Labor",
+			"qty_per_unit": 1,
+			"rate": 100,
+		})
+		tender.save(ignore_permissions=True)
+		tender.reload()
+
+		self.assertEqual(tender.boq_items[0].fixed_additions_per_unit, 0)
+		self.assertAlmostEqual(tender.boq_items[0].boq_direct_cost, 1000 + 50)
+		self.assertAlmostEqual(tender.total_additions, 50)
+

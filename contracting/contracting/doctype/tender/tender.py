@@ -214,8 +214,12 @@ class Tender(Document):
 			# self-reference described in the 2026-09-01 BRD.
 			raw_direct = layers["material"] + layers["labor"] + layers["equipment"]
 			row_vat_amount = raw_direct * (row.vat_percentage or 0) / 100.0
-			row_additions_amount = raw_direct * (row.other_additions_pct or 0) / 100.0 + (
-				row.fixed_additions or 0
+			# fixed_additions is a lump sum per row; fixed_additions_per_unit
+			# scales with quantity. Mirrored in tender.js.
+			row_additions_amount = (
+				raw_direct * (row.other_additions_pct or 0) / 100.0
+				+ (row.fixed_additions or 0)
+				+ (row.fixed_additions_per_unit or 0) * (row.original_quantity or 0)
 			)
 
 			row.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount
@@ -296,7 +300,8 @@ def preview_resource_totals(tender):
 LIVE_SYNC_FIELDS = {
 	"Tender BOQ Item": (
 		"description",
-		"vat_percentage", "other_additions_pct", "fixed_additions", "margin_percent",
+		"vat_percentage", "other_additions_pct", "fixed_additions", "fixed_additions_per_unit",
+		"margin_percent",
 		"original_quantity", "display_currency",
 		"total_amount", "effective_unit_price", "sell_rate", "sell_amount",
 		"material_cost", "labor_cost", "equipment_cost", "boq_direct_cost",
@@ -471,6 +476,7 @@ def add_boq_item_from_template(tender_name, template_name, original_quantity=1):
 		"vat_percentage": parent["vat_percentage"],
 		"other_additions_pct": parent["other_additions_pct"],
 		"fixed_additions": parent["fixed_additions"],
+		"fixed_additions_per_unit": parent["fixed_additions_per_unit"],
 	})
 
 	table_by_type = {"material": "material_items", "labor": "labor_items", "equipment": "equipment_items"}
@@ -525,3 +531,4 @@ def create_revised_version(tender_name):
 	new_tender.insert(ignore_permissions=True)
 
 	return new_tender.name
+

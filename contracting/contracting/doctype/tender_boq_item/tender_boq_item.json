@@ -19,6 +19,7 @@
   "vat_percentage",
   "other_additions_pct",
   "fixed_additions",
+  "fixed_additions_per_unit",
   "effective_unit_price",
   "total_amount",
   "material_cost",
@@ -118,7 +119,13 @@
   {
    "fieldname": "fixed_additions",
    "fieldtype": "Currency",
-   "label": "Fixed Additions"
+   "label": "Fixed Additions (Lump Sum)"
+  },
+  {
+   "default": "0",
+   "fieldname": "fixed_additions_per_unit",
+   "fieldtype": "Currency",
+   "label": "Fixed Additions (Per Unit)"
   },
   {
    "fieldname": "effective_unit_price",
@@ -245,7 +252,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-16 08:52:57.819119",
+ "modified": "2026-10-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tender BOQ Item",

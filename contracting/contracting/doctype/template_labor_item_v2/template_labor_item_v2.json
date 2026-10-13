@@ -28,12 +28,10 @@
    "label": "Qty per Unit"
   },
   {
-   "fetch_from": "item.last_purchase_rate",
    "fieldname": "rate",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Rate",
-   "fetch_if_empty": 1
+   "label": "Rate"
   },
   {
    "fieldname": "amount",

@@ -112,6 +112,7 @@ frappe.ui.form.on('Tender BOQ Item', {
     vat_percentage(frm, cdt, cdn) { recalculate_group_totals(frm); },
     other_additions_pct(frm, cdt, cdn) { recalculate_group_totals(frm); },
     fixed_additions(frm, cdt, cdn) { recalculate_group_totals(frm); },
+    fixed_additions_per_unit(frm, cdt, cdn) { recalculate_group_totals(frm); },
     margin_percent(frm, cdt, cdn) { recalculate_group_totals(frm); },
     display_currency(frm) { refresh_new_field_preview(frm); }
 });
@@ -364,7 +365,11 @@ function recalculate_group_totals(frm) {
             // Indirect Cost (2026-09-01 BRD).
             let raw_direct = direct_by_work_item[r.idx] || 0;
             let row_vat_amount = raw_direct * (r.vat_percentage || 0) / 100;
-            let row_additions_amount = raw_direct * (r.other_additions_pct || 0) / 100 + (r.fixed_additions || 0);
+            // fixed_additions is a lump sum per row; fixed_additions_per_unit
+            // scales with quantity.
+            let row_additions_amount = raw_direct * (r.other_additions_pct || 0) / 100
+                + (r.fixed_additions || 0)
+                + (r.fixed_additions_per_unit || 0) * (r.original_quantity || 0);
             r.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount;
             r.boq_safety_factor_amount = safety_by_work_item[r.idx] || 0;
             let row_final_cost = r.boq_direct_cost + r.boq_safety_factor_amount;
@@ -452,6 +457,7 @@ function apply_v2_template(frm, row, payload) {
     frappe.model.set_value(row.doctype, row.name, 'vat_percentage', parent.vat_percentage);
     frappe.model.set_value(row.doctype, row.name, 'other_additions_pct', parent.other_additions_pct);
     frappe.model.set_value(row.doctype, row.name, 'fixed_additions', parent.fixed_additions);
+    frappe.model.set_value(row.doctype, row.name, 'fixed_additions_per_unit', parent.fixed_additions_per_unit || 0);
 
     let table_by_type = {material: 'material_items', labor: 'labor_items', equipment: 'equipment_items'};
     payload.children.forEach(child => {

@@ -5,7 +5,6 @@ from frappe.model.document import Document
 from frappe.model.rename_doc import rename_doc
 
 from contracting.contracting.api import WORK_ITEM_GROUP, create_work_item_group
-from contracting.contracting.utils.pricing import calculate_effective_price
 
 # Work items share the Item namespace with ~7300 material/equipment
 # items, so the code is prefixed rather than being the bare template
@@ -60,9 +59,25 @@ class WorkItemTemplateV2(Document):
 				row.amount = (row.qty_per_unit or 0) * (row.rate or 0)
 				base_cost += row.amount
 
-		self.total_cost_per_unit = calculate_effective_price(
-			frappe._dict({"unit_price": base_cost, "additions": self.additions})
-		)
+		# A Fixed Amount addition is either charged per unit of the work
+		# item (scales with Tender BOQ quantity) or once per BOQ row (lump
+		# sum) - only the former belongs in a per-unit cost. per_unit_item
+		# is ignored on Percentage rows. Mirrored in work_item_template_v2.js
+		# and api/work_item_template_v2.py::get_v2_template_rows.
+		additions_pct = fixed_per_unit = fixed_lump_sum = 0.0
+		for a in self.additions:
+			if a.calculation_type == "Percentage":
+				additions_pct += a.value or 0
+			elif a.calculation_type == "Fixed Amount":
+				if a.per_unit_item:
+					fixed_per_unit += a.value or 0
+				else:
+					fixed_lump_sum += a.value or 0
+
+		self.total_work_item_cost = base_cost
+		self.total_additions = base_cost * additions_pct / 100.0 + fixed_per_unit
+		self.total_cost_per_unit = self.total_work_item_cost + self.total_additions
+		self.total_fixed_lump_sum = fixed_lump_sum
 
 	def sync_work_item(self):
 		"""Keep an Item master record in step with this template. That Item

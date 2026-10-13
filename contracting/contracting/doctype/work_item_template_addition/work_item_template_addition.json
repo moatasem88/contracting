@@ -9,6 +9,7 @@
   "addition_name",
   "calculation_type",
   "value",
+  "per_unit_item",
   "currency",
   "applies_to_base_only"
  ],
@@ -35,6 +36,16 @@
    "label": "Value"
   },
   {
+   "default": "1",
+   "depends_on": "eval:doc.calculation_type=='Fixed Amount'",
+   "description": "Fixed Amount only. Ticked: charged per unit of BOQ quantity. Unticked: charged once per BOQ row (lump sum).",
+   "fieldname": "per_unit_item",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Per Unit Item",
+   "read_only_depends_on": "eval:doc.calculation_type!='Fixed Amount'"
+  },
+  {
    "depends_on": "eval:doc.calculation_type=='Fixed Amount'",
    "fieldname": "currency",
    "fieldtype": "Link",
@@ -51,7 +62,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-16 08:52:57.198911",
+ "modified": "2026-10-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Work Item Template Addition",
