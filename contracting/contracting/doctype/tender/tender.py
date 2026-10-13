@@ -12,6 +12,32 @@ from frappe.utils import flt
 
 RESOURCE_TABLE_FIELDS = ("material_items", "labor_items", "equipment_items")
 
+# Keep in sync with EXPORT_ROLES in tender.js. Server check is the control;
+# the button is a convenience. Contracts Manager is deliberately absent.
+TENDER_EXPORT_ROLES = frozenset((
+	"Tender Manager",
+	"Tender Engineer Civil",
+	"Tender Engineer Electrical",
+	"Tender Engineer Mechanical",
+	"Cost Control Engineer",
+	"cost control manager",
+	"Planning and Cost Control Director",
+	"Planning Manager",
+	"Business Development Manager",
+	"Business Development Director",
+	"Company CEO",
+	"System Manager",
+))
+
+# (sheet title, Tender table fieldname) in workbook order
+EXPORT_SHEETS = (
+	("BOQ Items", "boq_items"),
+	("Material", "material_items"),
+	("Labor", "labor_items"),
+	("Equipment", "equipment_items"),
+)
+EXPORT_LAYOUT_TYPES = ("Section Break", "Column Break", "Tab Break", "HTML", "Button", "Heading")
+
 
 class Tender(Document):
 	def validate(self):
@@ -532,3 +558,101 @@ def create_revised_version(tender_name):
 
 	return new_tender.name
 
+
+def _export_columns(doctype):
+	"""Visible data fields of a child doctype, in field_order."""
+	# child doctypes have no permissions of their own - use Tender's
+	levels = frappe.get_meta("Tender").get_permlevel_access("read")
+	return [
+		df
+		for df in frappe.get_meta(doctype).fields
+		if df.fieldtype not in EXPORT_LAYOUT_TYPES
+		and not df.hidden
+		and (df.permlevel or 0) in levels
+	]
+
+
+def _export_cell(df, value):
+	if value is None:
+		return None
+	if df.fieldtype == "Check":
+		return _("Yes") if value else _("No")
+	if df.fieldtype in ("Currency", "Float", "Percent", "Int"):
+		return flt(value) if df.fieldtype != "Int" else int(value)
+	return value
+
+
+def _safe_filename(name):
+	import re
+
+	return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "Tender"
+
+
+@frappe.whitelist()
+def export_tender_xlsx(tender, scope="Whole Tender"):
+	"""Download one Tender's priced scope as .xlsx, whole or one tab.
+
+	Read-only: loads the saved document and never saves it. Built with
+	openpyxl directly - frappe's make_xlsx inserts each sheet at index 0
+	(reverses order), is write_only (no per-cell bold) and runs HTML
+	stripping over every string."""
+	from io import BytesIO
+
+	from openpyxl import Workbook
+	from openpyxl.styles import Font
+	from openpyxl.utils import get_column_letter
+
+	scopes = {"Whole Tender": [s for s, _f in EXPORT_SHEETS]}
+	scopes.update({sheet: [sheet] for sheet, _f in EXPORT_SHEETS})
+	if scope not in scopes:
+		frappe.throw(_("Invalid export scope: {0}").format(scope), frappe.ValidationError)
+
+	if not (TENDER_EXPORT_ROLES & set(frappe.get_roles())):
+		frappe.throw(_("You are not allowed to export Tenders."), frappe.PermissionError)
+	if not frappe.has_permission("Tender", "read", doc=tender):
+		frappe.throw(_("You do not have read access to this Tender."), frappe.PermissionError)
+
+	doc = frappe.get_doc("Tender", tender)
+	boq_names = {row.idx: row.item_name for row in doc.boq_items}
+	table_by_sheet = dict(EXPORT_SHEETS)
+	bold = Font(bold=True)
+
+	wb = Workbook()
+	wb.remove(wb.active)
+	for sheet in scopes[scope]:
+		fieldname = table_by_sheet[sheet]
+		child_doctype = doc.meta.get_field(fieldname).options
+		columns = _export_columns(child_doctype)
+		is_resource = fieldname in RESOURCE_TABLE_FIELDS
+
+		ws = wb.create_sheet(sheet)
+		headers = ["#"] + (["Work Item"] if is_resource else []) + [_(df.label) if df.label else df.fieldname for df in columns]
+		ws.append(headers)
+		for cell in ws[1]:
+			cell.font = bold
+
+		widths = [len(str(h)) for h in headers]
+		for row in doc.get(fieldname):
+			values = [row.idx]
+			if is_resource:
+				values.append(boq_names.get(row.get("work_item")) if row.get("work_item") else None)
+			values += [_export_cell(df, row.get(df.fieldname)) for df in columns]
+			ws.append(values)
+			out = ws[ws.max_row]
+			for i, cell in enumerate(out):
+				if isinstance(cell.value, str):
+					# plain text, never a formula (= + - @ prefixed input)
+					cell.data_type = "s"
+				widths[i] = max(widths[i], min(len(str(cell.value or "")), 60))
+			if fieldname == "boq_items" and row.get("is_group"):
+				for cell in out:
+					cell.font = bold
+		for i, w in enumerate(widths, 1):
+			ws.column_dimensions[get_column_letter(i)].width = w + 2
+
+	out = BytesIO()
+	wb.save(out)
+	suffix = "" if scope == "Whole Tender" else f" - {scope}"
+	frappe.response["filename"] = _safe_filename(f"{doc.name}{suffix}") + ".xlsx"
+	frappe.response["filecontent"] = out.getvalue()
+	frappe.response["type"] = "binary"

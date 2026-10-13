@@ -20,6 +20,41 @@ function prune_orphaned_boq_resource_rows(frm) {
     });
 }
 
+// Keep in sync with TENDER_EXPORT_ROLES in tender.py (server check is the control).
+const EXPORT_ROLES = [
+    'Tender Manager', 'Tender Engineer Civil', 'Tender Engineer Electrical',
+    'Tender Engineer Mechanical', 'Cost Control Engineer', 'cost control manager',
+    'Planning and Cost Control Director', 'Planning Manager',
+    'Business Development Manager', 'Business Development Director',
+    'Company CEO', 'System Manager',
+];
+
+function show_export_dialog(frm) {
+    const dialog = new frappe.ui.Dialog({
+        title: __('Export Tender to Excel'),
+        fields: [
+            {
+                fieldname: 'scope', fieldtype: 'Select', label: __('Export'), reqd: 1,
+                options: ['Whole Tender', 'BOQ Items', 'Material', 'Labor', 'Equipment'].join('\n'),
+                default: 'Whole Tender',
+            },
+            {
+                fieldname: 'note', fieldtype: 'HTML',
+                options: `<p class="text-muted">${__('The export uses the last saved version.')}</p>`,
+            },
+        ],
+        primary_action_label: __('Download'),
+        primary_action(values) {
+            open_url_post(
+                '/api/method/contracting.contracting.doctype.tender.tender.export_tender_xlsx',
+                {tender: frm.doc.name, scope: values.scope}
+            );
+            dialog.hide();
+        },
+    });
+    dialog.show();
+}
+
 frappe.ui.form.on('Tender', {
     setup(frm) {
         set_resource_queries(frm);
@@ -31,6 +66,10 @@ frappe.ui.form.on('Tender', {
         set_resource_queries(frm);
         apply_indent_styling(frm);
         recalculate_group_totals(frm);
+
+        if (!frm.doc.__islocal && frappe.user.has_role(EXPORT_ROLES)) {
+            frm.add_custom_button(__('Export to Excel'), () => show_export_dialog(frm));
+        }
 
         if (!frm.doc.__islocal && frm.doc.status === 'Complete') {
             frm.add_custom_button(__('Create Revised Version'), () => {

@@ -265,3 +265,123 @@ class TestTender(FrappeTestCase):
 		self.assertAlmostEqual(tender.boq_items[0].boq_direct_cost, 1000 + 50)
 		self.assertAlmostEqual(tender.total_additions, 50)
 
+
+class TestTenderExport(FrappeTestCase):
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		create_work_item_group()
+		ensure_customer()
+		if not frappe.db.exists("Item", "_Test Tender Labor"):
+			frappe.get_doc({
+				"doctype": "Item",
+				"item_code": "_Test Tender Labor",
+				"item_group": "Labor",
+				"stock_uom": "Nos",
+				"is_stock_item": 0,
+			}).insert(ignore_permissions=True)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def _tender(self, name="_Test Export"):
+		tender = make_tender(name, qty=10, description="=SUM(A1)")
+		tender.append("labor_items", {
+			"work_item": tender.boq_items[0].idx,
+			"item": "_Test Tender Labor",
+			"qty_per_unit": 1,
+			"rate": 100,
+		})
+		tender.append("labor_items", {"work_item": 1, "item": "_Test Tender Labor", "qty_per_unit": 1, "rate": 5})
+		tender.save(ignore_permissions=True)
+		# save() prunes orphans, so point the second row at a missing BOQ idx
+		# behind its back (legacy / imported data).
+		frappe.db.set_value("Tender Labor Item", tender.labor_items[1].name, "work_item", 99)
+		tender.reload()
+		return tender
+
+	def _export(self, tender, scope="Whole Tender"):
+		from io import BytesIO
+
+		from openpyxl import load_workbook
+
+		from contracting.contracting.doctype.tender.tender import export_tender_xlsx
+
+		export_tender_xlsx(tender.name, scope)
+		self.assertEqual(frappe.response["type"], "binary")
+		return frappe.response["filename"], load_workbook(BytesIO(frappe.response["filecontent"]))
+
+	def test_whole_export_sheets_and_columns(self):
+		tender = self._tender()
+		filename, wb = self._export(tender)
+
+		self.assertEqual(filename, f"{tender.name}.xlsx")
+		self.assertEqual(wb.sheetnames, ["BOQ Items", "Material", "Labor", "Equipment"])
+		self.assertEqual(wb["BOQ Items"].max_row, 2)
+		self.assertEqual(wb["Labor"].max_row, 3)
+		self.assertEqual(wb["Equipment"].max_row, 1)  # header only
+		headers = [c.value for c in wb["Labor"][1]]
+		self.assertEqual(headers[:2], ["#", "Work Item"])
+		self.assertNotIn("boq_row_id", headers)
+		self.assertTrue(wb["Labor"]["A1"].font.bold)
+
+	def test_work_item_name_and_orphan(self):
+		tender = self._tender()
+		_f, wb = self._export(tender, "Labor")
+		ws = wb["Labor"]
+		self.assertEqual(ws["B2"].value, tender.boq_items[0].item_name)
+		self.assertIsNone(ws["B3"].value)
+
+	def test_single_tab(self):
+		tender = self._tender()
+		filename, wb = self._export(tender, "Labor")
+		self.assertEqual(filename, f"{tender.name} - Labor.xlsx")
+		self.assertEqual(wb.sheetnames, ["Labor"])
+
+	def test_formula_text_stays_text(self):
+		tender = self._tender()
+		_f, wb = self._export(tender, "BOQ Items")
+		ws = wb["BOQ Items"]
+		cells = [c for c in ws[2] if c.value == "=SUM(A1)"]
+		self.assertTrue(cells)
+		self.assertEqual(cells[0].data_type, "s")
+
+	def test_disallowed_role_and_bad_scope(self):
+		from contracting.contracting.doctype.tender.tender import export_tender_xlsx
+
+		tender = self._tender()
+		with self.assertRaises(frappe.ValidationError):
+			export_tender_xlsx(tender.name, "Foo")
+
+		email = "_test_export_denied@example.com"
+		if not frappe.db.exists("User", email):
+			frappe.get_doc({
+				"doctype": "User", "email": email, "first_name": "Denied",
+				"send_welcome_email": 0, "roles": [{"role": "Contracts Manager"}],
+			}).insert(ignore_permissions=True)
+		frappe.set_user(email)
+		with self.assertRaises(frappe.PermissionError):
+			export_tender_xlsx(tender.name, "Whole Tender")
+
+	def test_export_has_no_side_effects(self):
+		tender = self._tender()
+		modified = frappe.db.get_value("Tender", tender.name, "modified")
+		self._export(tender)
+		self.assertEqual(frappe.db.get_value("Tender", tender.name, "modified"), modified)
+
+	def test_grant_patch_idempotent(self):
+		from contracting.patches import grant_tender_export_roles
+
+		def rows():
+			return frappe.db.count("Custom DocPerm", {"parent": "Tender"})
+
+		grant_tender_export_roles.execute()
+		first = rows()
+		grant_tender_export_roles.execute()
+		self.assertEqual(rows(), first)
+		perm = frappe.db.get_value(
+			"Custom DocPerm",
+			{"parent": "Tender", "role": "Business Development Manager"},
+			["read", "write", "create"], as_dict=True,
+		)
+		self.assertEqual((perm.read, perm.write, perm.create), (1, 0, 0))
