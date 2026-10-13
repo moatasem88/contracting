@@ -201,3 +201,43 @@ class TestContractorContractAddendum(FrappeTestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			addendum.submit()
+
+
+class TestAddendumTemplateLines(FrappeTestCase):
+	def test_template_addendum_inserts_row_and_escalates(self):
+		"""Follows Tender BRD FR-16 / OQ-3 / OQ-5 / TC-24: an addendum on a
+		template line skips availability, escalates to the CEO on a Tender
+		project, and on approval inserts a new Contracted Items row (marked
+		with its addendum, so FR-06 doesn't reject it) plus its template
+		resource rows, all red."""
+		from contracting.contracting.doctype.subcontractor_contract.test_subcontractor_contract import (
+			add_template_line,
+			make_v2_template,
+		)
+
+		template = make_v2_template("_SC FT Addendum").name
+		project, tender = make_resource_tender_and_project("addendum_tpl", qty=10)
+		contract = make_draft_contract(project, "Installing")
+		add_template_line(contract, template, 2)
+		contract.insert(ignore_permissions=True)
+		submit_contract(contract)
+
+		addendum = frappe.get_doc({
+			"doctype": "Contractor Contract Addendum",
+			"naming_series": "Subcontractor-ADDENDUM-.YYYY.-",
+			"subcontractor_contract": contract.name,
+		})
+		addendum.append("addendum_items", {"work_item_template": template, "qty_delta": 1000, "unit_price": 7})
+		addendum.insert(ignore_permissions=True)
+		self.assertEqual(addendum.requires_ceo_approval, 1)
+
+		approve_addendum(addendum)
+		self.assertEqual(addendum.workflow_state, "Approved")
+
+		contract.reload()
+		new_line = contract.contracted_items[-1]
+		self.assertEqual((new_line.work_item_template, new_line.addendum, new_line.out_of_tender_scope),
+			(template, addendum.name, 1))
+		self.assertEqual(len(contract.contracted_items), 2)
+		self.assertEqual(contract.contract_labor_items[-1].source, "Template")
+		self.assertEqual(contract.has_out_of_tender_items, 1)

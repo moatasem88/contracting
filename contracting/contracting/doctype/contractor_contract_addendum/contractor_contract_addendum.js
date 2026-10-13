@@ -44,7 +44,12 @@ function link_title(doctype, name) {
 }
 
 frappe.ui.form.on('Contractor Contract Addendum Item', {
+	work_item_template(frm, cdt, cdn) {
+		if (locals[cdt][cdn].work_item_template) frappe.model.set_value(cdt, cdn, 'work_item', null);
+	},
+
 	work_item(frm, cdt, cdn) {
+		if (locals[cdt][cdn].work_item) frappe.model.set_value(cdt, cdn, 'work_item_template', null);
 		frappe.model.set_value(cdt, cdn, 'labor_item', null);
 		frappe.model.set_value(cdt, cdn, 'equipment_item', null);
 		frappe.model.set_value(cdt, cdn, 'resource_item', null);

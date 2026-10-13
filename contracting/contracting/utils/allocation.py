@@ -63,6 +63,57 @@ RESOURCE_PROPAGATION = {
 	],
 }
 
+# Follows Tender BRD (2026-10-13): contract resource table -> the Work Item
+# Template V2 table it propagates from, and the Item rule every
+# template-sourced / extra row on it must satisfy (FR-08). Same rules as the
+# template form's own pickers (work_item_template_v2.js), enforced here
+# server-side as well so the API / Data Import can't bypass them.
+TEMPLATE_TABLE_BY_CONTRACT_TABLE = {
+	"contract_material_items": "material_items",
+	"contract_labor_items": "labor_items",
+	"contract_equipment_items": "equipment_items",
+}
+TEMPLATE_CHILD_DOCTYPE = {
+	"material_items": "Template Material Item V2",
+	"labor_items": "Template Labor Item V2",
+	"equipment_items": "Template Equipment Item V2",
+}
+ITEM_RULE_BY_CONTRACT_TABLE = {
+	"contract_material_items": ("is_stock_item", 1, "a stock item"),
+	"contract_labor_items": ("item_group", "Labor", "an item in the 'Labor' Item Group"),
+	"contract_equipment_items": ("item_group", "Equipment", "an item in the 'Equipment' Item Group"),
+}
+
+TEMPLATE_DOCTYPE = "Work Item Template V2"
+
+
+def line_key(row):
+	"""The contract line a Contracted Items row *is*, or a resource/payment
+	condition row *belongs to*: a Tender BOQ line or a Work Item Template.
+	Every lookup that used to key on row.work_item keys on this instead -
+	keying on work_item alone makes every template row (work_item blank)
+	match every other one, since None == None.
+	"""
+	if row.get("work_item"):
+		return ("tender", row.get("work_item"))
+	if row.get("work_item_template"):
+		return ("template", row.get("work_item_template"))
+	return None
+
+
+def validate_resource_item(table_fieldname, item, idx):
+	"""FR-08: the per-tab Item rule for template-sourced and extra rows."""
+	fieldname, expected, label = ITEM_RULE_BY_CONTRACT_TABLE[table_fieldname]
+	actual = frappe.db.get_value("Item", item, fieldname)
+	if actual is None:
+		frappe.throw(_("Row {0}: Item {1} does not exist.").format(idx, frappe.bold(item)))
+	if (flt(actual) != flt(expected)) if fieldname == "is_stock_item" else (actual != expected):
+		frappe.throw(
+			_("Row {0}: Item {1} is not allowed on this tab - it must be {2}.").format(
+				idx, frappe.bold(item), label
+			)
+		)
+
 
 # ---------------------------------------------------------------------------
 # Work item / resource row resolution
@@ -73,7 +124,10 @@ def get_work_item(work_item):
 	row = frappe.db.get_value(
 		"Tender BOQ Item",
 		work_item,
-		["name", "parent", "idx", "item_name", "description", "uom", "original_quantity", "is_group"],
+		[
+			"name", "parent", "idx", "item_name", "description", "uom", "original_quantity",
+			"is_group", "boq_direct_cost",
+		],
 		as_dict=True,
 	)
 	if not row:
@@ -195,6 +249,45 @@ def _closed_contract_supply_install_committed(work_item, exclude_contract=None):
 			params,
 		)[0][0]
 	)
+
+
+def work_item_previously_approved(work_item, exclude_contract=None):
+	"""FR-07(a): has this work item ever reached an *Approved* Subcontractor
+	Contract other than the one currently being saved? Rejected/cancelled
+	contracts don't count - only workflow_state == 'Approved' does. Same
+	`Contractor Contract Item` -> `Subcontractor Contract` join shape as
+	_closed_contract_supply_install_committed above, just keyed on
+	workflow_state instead of docstatus/is_closed."""
+	return bool(frappe.db.sql(
+		"""
+		select 1
+		from `tabContractor Contract Item` cci
+		inner join `tabSubcontractor Contract` sc on sc.name = cci.parent
+		where cci.work_item = %(work_item)s
+		  and sc.workflow_state = 'Approved'
+		  and sc.name != %(exclude)s
+		limit 1
+		""",
+		{"work_item": work_item, "exclude": exclude_contract or ""},
+	))
+
+
+def template_previously_approved(work_item_template, exclude_contract=None):
+	"""work_item_previously_approved's counterpart for template lines (Follows
+	Tender BRD, OQ-4): the 250,000 first-approval CEO threshold applies per
+	template the same way it applies per Tender work item."""
+	return bool(frappe.db.sql(
+		"""
+		select 1
+		from `tabContractor Contract Item` cci
+		inner join `tabSubcontractor Contract` sc on sc.name = cci.parent
+		where cci.work_item_template = %(template)s
+		  and sc.workflow_state = 'Approved'
+		  and sc.name != %(exclude)s
+		limit 1
+		""",
+		{"template": work_item_template, "exclude": exclude_contract or ""},
+	))
 
 
 def get_labor_committed(labor_item, exclude_contract=None):
@@ -486,9 +579,58 @@ def _propagated_resource_rows(work_item_row, contracted_qty, contract_type, subc
 					exclude_contract=subcontractor_contract, work_item_row=work_item_row,
 				),
 				"auto_propagated": 1,
+				"source": "Tender",
 			})
 		result[table_fieldname] = rows
 	return result
+
+
+def _template_resource_rows(work_item_template, qty, contract_type, include_reference=False):
+	"""FR-07: the template-line counterpart to _propagated_resource_rows -
+	one dict per template resource row, per resource table the contract type
+	fills (same RESOURCE_PROPAGATION gating). No Tender link and no
+	availability: a template line has no Tender quantity to draw down (FR-09).
+
+	No rate: the template's own rates are reference cost, and nobody in the
+	contracts department may see them (2026-10-13 decision, tightening the
+	BRD's FR-07) - the engineer enters what the subcontractor actually
+	charges. include_reference adds the template rate as tender_rate, for
+	server-side callers only (Addendum approval); never pass it through to
+	a whitelisted endpoint.
+	"""
+	template = frappe.get_doc(TEMPLATE_DOCTYPE, work_item_template)
+	result = {}
+	for _resource_doctype, _child_doctype, table_fieldname, _link in RESOURCE_PROPAGATION.get(contract_type, []):
+		rows = []
+		for resource_row in template.get(TEMPLATE_TABLE_BY_CONTRACT_TABLE[table_fieldname]):
+			ratio = flt(resource_row.qty_per_unit)
+			if ratio <= TOLERANCE:
+				continue
+			item_name, stock_uom = frappe.db.get_value("Item", resource_row.item, ["item_name", "stock_uom"]) or (None, None)
+			row = {
+				"work_item_template": template.name,
+				"item": resource_row.item,
+				"resource_item": item_name or resource_row.item,
+				"uom": stock_uom,
+				"qty": ratio * flt(qty),
+				"auto_propagated": 1,
+				"source": "Template",
+			}
+			if include_reference:
+				row["tender_rate"] = flt(resource_row.rate)
+			rows.append(row)
+		result[table_fieldname] = rows
+	return result
+
+
+@frappe.whitelist()
+def get_template_resource_rows(work_item_template, qty, contract_type):
+	"""Client entry point for template-line propagation (dialog + qty rescale).
+	'select' is enough - the contracts roles only hold select on the
+	template (they must not open it and see its rates), and nothing
+	returned here carries a rate."""
+	frappe.has_permission(TEMPLATE_DOCTYPE, "select", throw=True)
+	return _template_resource_rows(work_item_template, flt(qty), contract_type)
 
 
 @frappe.whitelist()

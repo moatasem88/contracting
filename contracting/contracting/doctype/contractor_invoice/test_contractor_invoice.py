@@ -14,6 +14,7 @@ from contracting.contracting.doctype.subcontractor_contract.test_subcontractor_c
 	make_resource_tender_and_project,
 	submit_contract,
 )
+from contracting.contracting.utils.progress_invoicing import get_item_progress_context
 
 
 def _account_like(name_fragment):
@@ -106,6 +107,26 @@ def make_condition_invoice(contract, cumulative_qty_complete):
 
 
 class TestContractorInvoice(FrappeTestCase):
+	def test_get_item_progress_context_default_source_doctype_unchanged(self):
+		"""2026-09-27 CPI auto-sync BRD: get_item_progress_context gained a
+		source_doctype param (Client Progress Invoice passes "Sales Order
+		Item"/"Tender Item") - Contractor Invoice's own call site never
+		passes it, so the default must produce byte-for-byte identical
+		results to before."""
+		contract = make_charged_contract("CtxDefault")
+		contract_item = contract.contracted_items[0]
+
+		ctx_implicit = get_item_progress_context(contract_item.name, "Contractor Invoice")
+		ctx_explicit = get_item_progress_context(
+			contract_item.name, "Contractor Invoice", source_doctype="Contractor Contract Item"
+		)
+
+		self.assertEqual(ctx_implicit, ctx_explicit)
+		self.assertEqual(ctx_implicit["qty_allocated"], contract_item.qty)
+		self.assertEqual(ctx_implicit["rate"], contract_item.unit_price)
+		self.assertEqual(ctx_implicit["parent"], contract.name)
+		self.assertEqual(ctx_implicit["prior_max_qty"], 0)
+
 	def test_condition_progress_ceiling_and_rollup(self):
 		"""2026-09-13 payment-condition-payout fix: every condition on a line
 		shares the same, full, unscaled ceiling (the line's own qty) -

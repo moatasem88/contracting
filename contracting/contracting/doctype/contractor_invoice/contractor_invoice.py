@@ -287,10 +287,15 @@ def _resolve_work_item_template(contract_item_name):
 	"""Contractor Contract Item -> Tender BOQ Item -> Work Item Template V2,
 	or None at any missing hop (a labor/equipment-only line has no work_item;
 	a manually-entered BOQ line may have no work_item_template)."""
-	work_item = frappe.db.get_value("Contractor Contract Item", contract_item_name, "work_item")
-	if not work_item:
+	line = frappe.db.get_value(
+		"Contractor Contract Item", contract_item_name, ["work_item", "work_item_template"], as_dict=True
+	) or frappe._dict()
+	# Follows Tender BRD FR-16: a template line names its template directly.
+	if line.work_item_template:
+		return line.work_item_template
+	if not line.work_item:
 		return None
-	return frappe.db.get_value("Tender BOQ Item", work_item, "work_item_template")
+	return frappe.db.get_value("Tender BOQ Item", line.work_item, "work_item_template")
 
 
 def _billing_rows(contractor_invoice):
@@ -404,11 +409,19 @@ def _append_pi_item(pi, contract_item_name, qty, rate, payout_rate, payment_cond
 	# allocates against a BOQ line, so the Item (when there is one) and
 	# the UOM both come off that line.
 	contract_item = frappe.db.get_value(
-		"Contractor Contract Item", contract_item_name, ["work_item", "description", "uom"], as_dict=True
+		"Contractor Contract Item", contract_item_name, ["work_item", "work_item_template", "description", "uom"],
+		as_dict=True,
 	) or frappe._dict()
 	boq = frappe.db.get_value(
 		"Tender BOQ Item", contract_item.work_item, ["item_code", "item_name", "uom", "work_item_template"], as_dict=True
 	) if contract_item.work_item else frappe._dict()
+	if contract_item.work_item_template:
+		# Follows Tender BRD FR-16: a template line has no BOQ row - it bills
+		# as the template's own Item (WI-...), under the template's account.
+		boq = frappe._dict(
+			item_code=frappe.db.get_value("Work Item Template V2", contract_item.work_item_template, "item"),
+			work_item_template=contract_item.work_item_template,
+		)
 
 	template_account = (
 		frappe.db.get_value("Work Item Template V2", boq.work_item_template, "account")

@@ -6,7 +6,10 @@ from frappe.permissions import add_permission, update_permission_property
 # derives from Tender (see contracting/contracting/api/link.py), so read on
 # Tender is what actually unblocks the Work Item / Labor Item / Equipment
 # Item pickers - all three are children of Tender.
-ROLES = ("Contracts Manager", "cost control manager", "Company CEO")
+# Contracts Manager was dropped from this list on 2026-10-13: the contracts
+# department must not see Tender costs/rates, and the pickers only need
+# 'select' - see restrict_tender_to_select_for_contracts_roles.py.
+ROLES = ("cost control manager", "Company CEO")
 RIGHTS = ("read", "select", "report", "export", "print")
 
 

@@ -4,7 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from contracting.contracting.utils import allocation
-from contracting.contracting.utils.allocation import EQUIPMENT, LABOR_TYPES, TOLERANCE
+from contracting.contracting.utils.allocation import EQUIPMENT, LABOR_TYPES, TEMPLATE_DOCTYPE, TOLERANCE
 
 
 class ContractorContractAddendum(Document):
@@ -49,6 +49,20 @@ class ContractorContractAddendum(Document):
 
 		project_tenders = {row.tender for row in self.project_tenders}
 		for row in self.addendum_items:
+			if bool(row.work_item) == bool(row.work_item_template):
+				frappe.throw(
+					_("Row {0}: set exactly one of Work Item (Tender line) or Work Item Template.").format(row.idx)
+				)
+
+			if row.work_item_template:
+				# Follows Tender BRD FR-16: a template line - no Tender
+				# membership or availability to check (FR-09).
+				if not frappe.db.exists(TEMPLATE_DOCTYPE, row.work_item_template):
+					frappe.throw(_("Row {0}: Work Item Template {1} does not exist.").format(
+						row.idx, frappe.bold(row.work_item_template)))
+				row.amount = flt(row.qty_delta) * flt(row.unit_price)
+				continue
+
 			work_item_row = allocation.get_work_item(row.work_item)
 			if work_item_row.parent not in project_tenders:
 				frappe.throw(
@@ -70,7 +84,14 @@ class ContractorContractAddendum(Document):
 		which cannot read a Single doctype, so this has to be precomputed.
 		"""
 		threshold = flt(frappe.db.get_single_value("Contracting Settings", "ceo_approval_value_threshold"))
-		self.requires_ceo_approval = 1 if threshold and flt(self.grand_total_delta) >= threshold else 0
+		over_threshold = bool(threshold and flt(self.grand_total_delta) >= threshold)
+
+		# Follows Tender BRD OQ-5: adding a template line to a contract
+		# whose project has a Tender goes beyond the original Tender, so it
+		# escalates the same way the base contract does (FR-13).
+		out_of_tender = bool(self.project_tenders) and any(row.work_item_template for row in self.addendum_items)
+
+		self.requires_ceo_approval = 1 if (over_threshold or out_of_tender) else 0
 
 	def validate_availability(self, lock=False):
 		"""FR-37: re-check availability inside the submitting transaction.
@@ -86,11 +107,12 @@ class ContractorContractAddendum(Document):
 		rows live in their own table that _committed() never queries, so
 		there is nothing of this document's own to exclude.
 		"""
+		tender_rows = [row for row in self.addendum_items if row.work_item]
 		if lock:
-			allocation.lock_work_items([row.work_item for row in self.addendum_items])
+			allocation.lock_work_items([row.work_item for row in tender_rows])
 
 		own = {}
-		for row in self.addendum_items:
+		for row in tender_rows:
 			key = self._allocation_key(row)
 			entry = own.setdefault(key, {"qty": 0.0, "idx": row.idx})
 			entry["qty"] += flt(row.qty_delta)
@@ -163,8 +185,58 @@ def apply_on_approval(doc, method=None):
 	next_idx = len(contract.contracted_items)
 	next_resource_idx = {fieldname: len(contract.get(fieldname)) for _dt, _cdt, fieldname, _lf in resource_tables}
 
+	# Follows Tender BRD: nothing below runs the base contract's validate(),
+	# so the out-of-Tender flag for what this inserts is set here directly.
+	has_tender = bool(contract.project_tenders)
+	any_out_of_scope = False
+
 	for row in doc.addendum_items:
 		next_idx += 1
+		if row.work_item_template:
+			# FR-16 / OQ-3: same shape as a Tender-line addendum - a new
+			# Contracted Items row at the addendum's own price, marked with
+			# its addendum so FR-06's one-row-per-template rule exempts it.
+			template = frappe.db.get_value(
+				TEMPLATE_DOCTYPE, row.work_item_template,
+				["template_name", "description", "uom", "total_cost_per_unit"], as_dict=True,
+			)
+			frappe.get_doc({
+				"doctype": "Contractor Contract Item",
+				"parent": contract.name,
+				"parenttype": "Subcontractor Contract",
+				"parentfield": "contracted_items",
+				"idx": next_idx,
+				"work_item_template": row.work_item_template,
+				"follows_tender": 0,
+				"addendum": doc.name,
+				"description": template.description or template.template_name,
+				"uom": template.uom,
+				"qty": row.qty_delta,
+				"unit_price": row.unit_price,
+				"amount": row.amount,
+				"tender_unit_cost": template.total_cost_per_unit,
+				"out_of_tender_scope": 1 if has_tender else 0,
+				"resources_propagated": 1,
+			}).db_insert()
+			any_out_of_scope = any_out_of_scope or has_tender
+
+			propagated = allocation._template_resource_rows(
+				row.work_item_template, row.qty_delta, doc.type_subcontractor, include_reference=True
+			)
+			for _dt, child_doctype, fieldname, _lf in resource_tables:
+				for prop_row in propagated.get(fieldname, []):
+					next_resource_idx[fieldname] += 1
+					frappe.get_doc({
+						"doctype": child_doctype,
+						"parent": contract.name,
+						"parenttype": "Subcontractor Contract",
+						"parentfield": fieldname,
+						"idx": next_resource_idx[fieldname],
+						**prop_row,
+						"out_of_tender_scope": 1 if has_tender else 0,
+					}).db_insert()
+			continue
+
 		frappe.get_doc({
 			"doctype": "Contractor Contract Item",
 			"parent": contract.name,
@@ -172,6 +244,8 @@ def apply_on_approval(doc, method=None):
 			"parentfield": "contracted_items",
 			"idx": next_idx,
 			"work_item": row.work_item,
+			"follows_tender": 1,
+			"addendum": doc.name,
 			"qty": row.qty_delta,
 			"unit_price": row.unit_price,
 			"amount": row.amount,
@@ -211,6 +285,9 @@ def apply_on_approval(doc, method=None):
 					"idx": next_resource_idx[fieldname],
 					**prop_row,
 				}).db_insert()
+
+	if any_out_of_scope:
+		frappe.db.set_value("Subcontractor Contract", contract.name, "has_out_of_tender_items", 1, update_modified=False)
 
 	contract.reload()
 	contract.calculate_totals()

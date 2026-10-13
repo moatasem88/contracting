@@ -100,12 +100,23 @@ from contracting.patches.create_contractor_invoice_workflow import (
 )
 from contracting.patches.create_tender_roles import TENDER_ROLES as _TENDER_ROLES
 from contracting.patches.create_contractor_invoice_roles import CONTRACTOR_INVOICE_ROLES as _CI_ROLES
+from contracting.patches.create_contracts_engineer_role import CONTRACTS_ENGINEER_ROLE as _CE_ROLE
+
+# Projects Director already exists live (created by hand, pre-dating this
+# app's fixtures discipline) but was never captured by any filter here - the
+# 2026-09-27 approval-chain rebuild is the first thing in this app to
+# reference it, so it's added explicitly now rather than left to keep
+# existing only in site1.local's DB.
+_PROJECTS_DIRECTOR_ROLE = "Projects Director"
 
 fixtures = [
     {"dt": "Custom Field", "filters": [["name", "in", _custom_field_names()]]},
     {
         "dt": "Role",
-        "filters": [["name", "in", ["Contracts Manager", *_TENDER_ROLES, *_CI_ROLES]]],
+        "filters": [[
+            "name", "in",
+            ["Contracts Manager", _PROJECTS_DIRECTOR_ROLE, _CE_ROLE, *_TENDER_ROLES, *_CI_ROLES],
+        ]],
     },
     {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME, _CI_WORKFLOW_NAME]]]},
     {
@@ -306,6 +317,11 @@ doc_events = {
 
 # Overriding Methods
 # ------------------------------
+
+# Follows Tender BRD FR-15: Tender cost fields stay hidden from the contracts
+# department on API reads too, not only in the form - see the module docstring.
+before_request = ["contracting.contracting.api.permlevel_guard.apply_permlevel_on_guarded_reads"]
+after_request = ["contracting.contracting.api.permlevel_guard.scrub_tender_cost_from_response"]
 
 override_whitelisted_methods = {
 	# Core refuses Link fields that point at child rows; see the module docstring.
