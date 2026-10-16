@@ -166,7 +166,7 @@
    "label": "Resource Settings"
   },
   {
-   "default": "0",
+   "default": "1",
    "description": "When on, editing an item's rate in the Material/Labor/Equipment tabs applies that same rate to every other row referencing the same item, across all work items.",
    "fieldname": "consolidate_rates_by_item",
    "fieldtype": "Check",
@@ -412,10 +412,11 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-16 09:35:25.992755",
+ "modified": "2026-10-11 17:19:22.799399",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tender",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {
