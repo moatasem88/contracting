@@ -1,0 +1,125 @@
+{
+ "actions": [],
+ "creation": "2026-08-30 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "attachment_name",
+  "is_version",
+  "parent_attachment",
+  "attachment_type",
+  "date",
+  "attachment",
+  "column_break_history_1",
+  "description",
+  "zone",
+  "code",
+  "reply_date",
+  "approved_by",
+  "consultant_office",
+  "response_attachment"
+ ],
+ "fields": [
+  {
+   "fieldname": "attachment_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Attachment",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_version",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "parent_attachment",
+   "fieldtype": "Data",
+   "label": "Parent Attachment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attachment_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Attachment Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Attachment File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_history_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "read_only": 1
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Data",
+   "label": "Zone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reply_date",
+   "fieldtype": "Date",
+   "label": "Reply Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "label": "Approved By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consultant_office",
+   "fieldtype": "Data",
+   "label": "Consultant Office",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_attachment",
+   "fieldtype": "Attach",
+   "label": "Response Attachment",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-30 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Document History",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
