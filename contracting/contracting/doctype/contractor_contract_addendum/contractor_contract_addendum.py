@@ -246,6 +246,11 @@ def apply_on_approval(doc, method=None):
 			"work_item": row.work_item,
 			"follows_tender": 1,
 			"addendum": doc.name,
+			# db_insert skips validate, so fill what the link title and the
+			# invoice grids display - blank shows the raw row id instead.
+			"description": frappe.db.get_value("Tender BOQ Item", row.work_item, "description")
+				or frappe.db.get_value("Tender BOQ Item", row.work_item, "item_name"),
+			"uom": frappe.db.get_value("Tender BOQ Item", row.work_item, "uom"),
 			"qty": row.qty_delta,
 			"unit_price": row.unit_price,
 			"amount": row.amount,

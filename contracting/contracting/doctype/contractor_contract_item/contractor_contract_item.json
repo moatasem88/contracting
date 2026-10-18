@@ -44,7 +44,9 @@
    "fieldtype": "Link",
    "label": "Work Item Template",
    "options": "Work Item Template V2",
-   "set_only_once": 1
+   "set_only_once": 1,
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "default": "1",

@@ -446,7 +446,11 @@ class SubcontractorContract(Document):
 					frappe.throw(
 						_("{0} row {1}: Item is required.").format(_(self.meta.get_label(fieldname)), row.idx)
 					)
-				allocation.validate_resource_item(fieldname, row.item, row.idx)
+				# Rows copied from the template are the template's own data (its
+				# item picker rule is client-side only, so it can hold items this
+				# rule rejects). Only hand-added Extra rows are held to the rule.
+				if row.source != "Template":
+					allocation.validate_resource_item(fieldname, row.item, row.idx)
 				if row.work_item and row.work_item not in tender_lines:
 					frappe.throw(
 						_("{0} row {1}: work item {2} is not a Tender line on Contracted Items.").format(

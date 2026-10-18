@@ -29,7 +29,9 @@
    "fieldname": "work_item_template",
    "fieldtype": "Link",
    "label": "Work Item Template",
-   "options": "Work Item Template V2"
+   "options": "Work Item Template V2",
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "condition",
