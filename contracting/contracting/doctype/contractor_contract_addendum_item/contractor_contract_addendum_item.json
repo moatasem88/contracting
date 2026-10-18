@@ -6,6 +6,14 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "description",
+  "action",
+  "base_contract_item",
+  "old_qty",
+  "old_unit_price",
+  "new_qty",
+  "new_unit_price",
+  "invoiced_qty",
   "work_item",
   "work_item_template",
   "labor_item",
@@ -14,16 +22,75 @@
   "available_qty",
   "qty_delta",
   "unit_price",
+  "update_row",
+  "delete_row",
   "amount"
  ],
  "fields": [
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Description",
+   "read_only": 1
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "label": "Action",
+   "options": "\nUpdate\nDelete\nAdd",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "Blank = unchanged base row. Use the row buttons to Update or Delete."
+  },
+  {
+   "fieldname": "base_contract_item",
+   "fieldtype": "Data",
+   "label": "Base Contract Item",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "The Contracted Items row of the base contract this row amends."
+  },
+  {
+   "fieldname": "old_qty",
+   "fieldtype": "Float",
+   "label": "Current Qty",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "old_unit_price",
+   "fieldtype": "Currency",
+   "label": "Current Unit Price",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_qty",
+   "fieldtype": "Float",
+   "label": "New Qty",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_unit_price",
+   "fieldtype": "Currency",
+   "label": "New Unit Price",
+   "read_only": 1
+  },
+  {
+   "fieldname": "invoiced_qty",
+   "fieldtype": "Float",
+   "label": "Invoiced Qty",
+   "read_only": 1,
+   "description": "Quantity already claimed on submitted Contractor Invoices. New Qty cannot go below it."
+  },
   {
    "description": "The Tender BOQ line being amended. Restricted to the base contract's tender BOQ rows.",
    "fieldname": "work_item",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Work Item",
-   "options": "Tender BOQ Item"
+   "options": "Tender BOQ Item",
+   "read_only_depends_on": "eval:doc.base_contract_item"
   },
   {
    "description": "Add to a template line instead of a Tender work item.",
@@ -31,33 +98,29 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Work Item Template",
-   "options": "Work Item Template V2"
+   "options": "Work Item Template V2",
+   "read_only_depends_on": "eval:doc.base_contract_item"
   },
   {
    "depends_on": "eval:parent.type_subcontractor == \"Installing\"",
-   "description": "Labor line within the selected work item. Required for Install Only contracts.",
+   "description": "Legacy - unused since 2026-08-30 (resources are propagated on approval). Kept so old addenda still load.",
    "fieldname": "labor_item",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Labor Item",
-   "mandatory_depends_on": "eval:parent.type_subcontractor == \"Installing\"",
    "options": "Tender Labor Item"
   },
   {
    "depends_on": "eval:parent.type_subcontractor == \"Equipment\"",
-   "description": "Equipment line within the selected work item. Required for Equipment contracts.",
+   "description": "Legacy - unused since 2026-08-30 (resources are propagated on approval). Kept so old addenda still load.",
    "fieldname": "equipment_item",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Equipment Item",
-   "mandatory_depends_on": "eval:parent.type_subcontractor == \"Equipment\"",
    "options": "Tender Equipment Item"
   },
   {
    "description": "The Item on the Labor/Equipment line selected above. Carried across so it stays visible in list view, reports and print.",
    "fieldname": "resource_item",
    "fieldtype": "Data",
-   "in_list_view": 1,
    "label": "Resource Item",
    "read_only": 1
   },
@@ -65,24 +128,35 @@
    "description": "Remaining quantity available on the base contract's tender, excluding the base contract's own already-committed qty.",
    "fieldname": "available_qty",
    "fieldtype": "Float",
-   "in_list_view": 1,
    "label": "Available Qty",
    "read_only": 1
   },
   {
-   "description": "Additional quantity this addendum grants. Applied as a new row on the base contract's Contracted Items on approval.",
+   "description": "Net quantity change this row makes. Calculated for Update/Delete rows; for Add rows it is the new quantity.",
    "fieldname": "qty_delta",
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Qty Delta",
-   "reqd": 1
+   "read_only_depends_on": "eval:doc.base_contract_item"
   },
   {
    "fieldname": "unit_price",
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Unit Price",
-   "reqd": 1
+   "read_only_depends_on": "eval:doc.base_contract_item"
+  },
+  {
+   "fieldname": "update_row",
+   "fieldtype": "Button",
+   "label": "Update",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "delete_row",
+   "fieldtype": "Button",
+   "label": "Delete",
+   "in_list_view": 1
   },
   {
    "fieldname": "amount",

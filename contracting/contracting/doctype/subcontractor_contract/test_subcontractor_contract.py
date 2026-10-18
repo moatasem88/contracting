@@ -921,3 +921,118 @@ class TestFollowsTender(FrappeTestCase):
 		add_template_line(contract, self.template, 1)
 		contract.insert(ignore_permissions=True)
 		self.assertEqual(_resolve_work_item_template(contract.contracted_items[0].name), self.template)
+
+
+# ---------------------------------------------------------------------------
+# Contract / Invoice / Addendum overhaul BRD (2026-10-18)
+# ---------------------------------------------------------------------------
+
+ENGINEER_STATE = "Pending Cost Control Engineer Review"
+
+
+def _contract_on_line(project, tender, qty=4):
+	contract = make_draft_contract(project, "Supplying and installing")
+	add_tender_line(contract, tender.boq_items[0], qty, 100)
+	return contract
+
+
+class TestApprovalChainOverhaul(FrappeTestCase):
+	def test_workflow_has_projects_director_engineer_and_director_steps(self):
+		for name in ("Subcontractor Contract Approval", "Subcontractor Contract Addendum Approval"):
+			transitions = {
+				(t.state, t.action, t.next_state, t.allowed, t.condition or "")
+				for t in frappe.get_all(
+					"Workflow Transition", filters={"parent": name},
+					fields=["state", "action", "next_state", "allowed", "condition"],
+				)
+			}
+			self.assertIn(("Pending Contracts Manager Approval", "Approve", "Pending Projects Director Approval",
+				"Contracts Manager", ""), transitions)
+			self.assertIn(("Pending Projects Director Approval", "Approve", ENGINEER_STATE,
+				"Projects Director", ""), transitions)
+			self.assertIn((ENGINEER_STATE, "Approve", "Pending Cost Control Approval",
+				"Cost Control Engineer", "doc.checklist_attachment"), transitions)
+			self.assertIn(("Pending Cost Control Approval", "Approve",
+				"Pending Planning and Cost Control Director Approval", "cost control manager", ""), transitions)
+			self.assertIn(("Pending Planning and Cost Control Director Approval", "Approve", "Approved",
+				"Planning and Cost Control Director", "doc.requires_ceo_approval == 0"), transitions)
+			self.assertIn(("Pending Planning and Cost Control Director Approval", "Approve", "Pending CEO Approval",
+				"Planning and Cost Control Director", "doc.requires_ceo_approval == 1"), transitions)
+			# The old shortcut straight from cost control to Approved is gone.
+			self.assertFalse([t for t in transitions if t[0] == "Pending Cost Control Approval" and t[2] == "Approved"])
+
+	def test_checklist_only_changes_in_engineer_state(self):
+		project, tender = make_resource_tender_and_project("chk_window", qty=10)
+		contract = _contract_on_line(project, tender)
+		contract.insert(ignore_permissions=True)
+
+		contract.checklist_attachment = "/files/x.pdf"
+		self.assertRaises(frappe.ValidationError, contract.save)
+
+		contract.reload()
+		contract.db_set("workflow_state", ENGINEER_STATE, update_modified=False)
+		contract.reload()
+		contract.checklist_attachment = "/files/x.pdf"
+		contract.save(ignore_permissions=True)
+
+		contract.db_set("workflow_state", "Pending Cost Control Approval", update_modified=False)
+		contract.reload()
+		contract.checklist_attachment = "/files/y.pdf"
+		self.assertRaises(frappe.ValidationError, contract.save)
+
+	def test_effective_date_stamped_on_submit_and_immutable(self):
+		project, tender = make_resource_tender_and_project("eff_date", qty=10)
+		contract = _contract_on_line(project, tender)
+		contract.effective_date = "2020-01-01"  # an API write in Draft is discarded
+		contract.insert(ignore_permissions=True)
+		self.assertFalse(contract.effective_date)
+
+		submit_contract(contract)
+		self.assertEqual(str(contract.effective_date), frappe.utils.today())
+
+		contract.effective_date = "2020-01-01"
+		self.assertRaises(frappe.ValidationError, contract.save)
+
+	def test_overlapping_contract_blocked_on_submit_for_approval(self):
+		project, tender = make_resource_tender_and_project("overlap", qty=10)
+		first = _contract_on_line(project, tender)
+		first.insert(ignore_permissions=True)
+
+		second = _contract_on_line(project, tender)
+		second.insert(ignore_permissions=True)
+		second.workflow_state = "Pending Contracts Manager Approval"
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			second.save(ignore_permissions=True)
+		self.assertIn(first.name, str(ctx.exception))
+
+	def test_rejected_or_closed_rival_does_not_block(self):
+		project, tender = make_resource_tender_and_project("overlap_ok", qty=10)
+		first = _contract_on_line(project, tender)
+		first.insert(ignore_permissions=True)
+		first.db_set("workflow_state", "Rejected", update_modified=False)
+
+		second = _contract_on_line(project, tender)
+		second.insert(ignore_permissions=True)
+		second.workflow_state = "Pending Contracts Manager Approval"
+		second.save(ignore_permissions=True)
+
+		# `second` is now live and shares the line, so a third is blocked...
+		third = _contract_on_line(project, tender)
+		third.insert(ignore_permissions=True)
+		third.workflow_state = "Pending Contracts Manager Approval"
+		self.assertRaises(frappe.ValidationError, third.save)
+
+		# ...but not once that rival is closed.
+		second.db_set("is_closed", 1, update_modified=False)
+		third.reload()
+		third.workflow_state = "Pending Contracts Manager Approval"
+		third.save(ignore_permissions=True)
+
+	def test_boq_work_item_template_fetched_on_save(self):
+		project, tender = make_resource_tender_and_project("boq_tpl", qty=10)
+		template = make_v2_template("_Test OH BOQ Template")
+		frappe.db.set_value("Tender BOQ Item", tender.boq_items[0].name, "work_item_template", template.name)
+		contract = _contract_on_line(project, tender)
+		contract.insert(ignore_permissions=True)
+		self.assertEqual(contract.contracted_items[0].boq_work_item_template, template.name)
+		self.assertFalse(contract.contracted_items[0].work_item_template)

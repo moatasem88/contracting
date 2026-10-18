@@ -1,0 +1,79 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-18 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "work_item",
+  "work_item_template",
+  "condition",
+  "percent",
+  "category",
+  "base_condition"
+ ],
+ "fields": [
+  {
+   "description": "Tender BOQ line these conditions belong to. Leave both Work Item and Work Item Template blank to change the contract-wide default.",
+   "fieldname": "work_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Work Item (Override)",
+   "options": "Tender BOQ Item"
+  },
+  {
+   "description": "Template line these conditions belong to.",
+   "fieldname": "work_item_template",
+   "fieldtype": "Link",
+   "label": "Work Item Template",
+   "options": "Work Item Template V2",
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "condition",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Condition",
+   "reqd": 1
+  },
+  {
+   "fieldname": "percent",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Percent",
+   "reqd": 1
+  },
+  {
+   "description": "Optional eligibility tag - does not create a new percent pool (see Work Item above).",
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "\nMaterial\nLabor\nEquipment"
+  },
+  {
+   "fieldname": "base_condition",
+   "fieldtype": "Data",
+   "label": "Base Condition",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Name of the contract's existing Payment Condition this row replaces. Blank = a new condition."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Contractor Contract Addendum Payment Condition",
+ "owner": "Administrator",
+ "permissions": [],
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "condition"
+}

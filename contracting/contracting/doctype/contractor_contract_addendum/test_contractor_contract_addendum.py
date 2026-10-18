@@ -3,11 +3,14 @@
 
 import frappe
 from frappe.model.workflow import apply_workflow
+from unittest import mock
+
 from frappe.tests.utils import FrappeTestCase
 
 from contracting.contracting.doctype.subcontractor_contract.test_subcontractor_contract import (
 	ensure_resource_item,
 	make_draft_contract,
+	add_tender_line,
 	make_resource_tender_and_project,
 	submit_contract,
 )
@@ -37,9 +40,14 @@ def approve_addendum(addendum):
 	state matches the new docstatus on a direct submit(), which would jump
 	straight to Approved and skip the approval chain entirely)."""
 	apply_workflow(addendum, "Submit for Approval")
-	apply_workflow(addendum, "Approve")  # Contracts Manager: -> Pending Cost Control
-	apply_workflow(addendum, "Approve")  # Cost Control: -> Approved (or Pending CEO)
-	if addendum.workflow_state == "Pending CEO Approval":
+	# Contracts Manager -> Projects Director -> Cost Control Engineer (needs the
+	# checklist) -> cost control manager -> Planning Director -> (CEO) -> Approved.
+	for _step in range(8):
+		if addendum.workflow_state == "Approved":
+			break
+		if addendum.workflow_state == "Pending Cost Control Engineer Review" and not addendum.checklist_attachment:
+			addendum.checklist_attachment = "/files/test-checklist.pdf"
+			addendum.save(ignore_permissions=True)
 		apply_workflow(addendum, "Approve")
 	return addendum
 
@@ -241,3 +249,180 @@ class TestAddendumTemplateLines(FrappeTestCase):
 		self.assertEqual(len(contract.contracted_items), 2)
 		self.assertEqual(contract.contract_labor_items[-1].source, "Template")
 		self.assertEqual(contract.has_out_of_tender_items, 1)
+
+
+# ---------------------------------------------------------------------------
+# Overhaul BRD (2026-10-18): Update / Delete / Add against the base contract
+# ---------------------------------------------------------------------------
+
+INVOICED = "contracting.contracting.doctype.contractor_contract_addendum.contractor_contract_addendum.get_invoiced_progress"
+
+
+def make_amendable_contract(suffix, qty=5, with_conditions=False):
+	"""An Approved Install Only contract whose single line (and its labor
+	row) came through real propagation, so a rescale has something to
+	rescale."""
+	project, tender = make_resource_tender_and_project(suffix, qty=10)
+	boq_row = tender.boq_items[0]
+	contract = make_draft_contract(project, "Installing")
+	add_tender_line(contract, boq_row, qty, 100)
+	if with_conditions:
+		contract.append("payment_conditions", {"condition": "Advance", "percent": 100})
+	contract.insert(ignore_permissions=True)
+	submit_contract(contract)
+	return contract, boq_row
+
+
+def make_addendum(contract, rows, conditions=None):
+	addendum = frappe.get_doc({
+		"doctype": "Contractor Contract Addendum",
+		"naming_series": "Subcontractor-ADDENDUM-.YYYY.-",
+		"subcontractor_contract": contract.name,
+	})
+	for row in rows:
+		addendum.append("addendum_items", row)
+	for condition in conditions or []:
+		addendum.append("addendum_payment_conditions", condition)
+	return addendum
+
+
+class TestAddendumAmendments(FrappeTestCase):
+	def test_loader_returns_base_rows(self):
+		from contracting.contracting.doctype.contractor_contract_addendum.contractor_contract_addendum import (
+			get_contract_items_for_addendum,
+		)
+		contract, boq_row = make_amendable_contract("add_loader")
+		rows = get_contract_items_for_addendum(contract.name)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["base_contract_item"], contract.contracted_items[0].name)
+		self.assertEqual((rows[0]["old_qty"], rows[0]["old_unit_price"], rows[0]["invoiced_qty"]), (5, 100, 0))
+		self.assertEqual(get_contract_items_for_addendum(""), [])
+
+	def test_update_changes_row_rescales_resources_and_stamps_effective_date(self):
+		contract, boq_row = make_amendable_contract("add_update")
+		base = contract.contracted_items[0].name
+		self.assertEqual(contract.contract_labor_items[0].qty, 5)
+
+		addendum = make_addendum(contract, [
+			{"base_contract_item": base, "action": "Update", "new_qty": 8, "new_unit_price": 120},
+		])
+		addendum.insert(ignore_permissions=True)
+		self.assertEqual((addendum.addendum_items[0].old_qty, addendum.addendum_items[0].qty_delta), (5, 3))
+		self.assertAlmostEqual(addendum.grand_total_delta, 8 * 120 - 5 * 100, places=6)
+
+		contract.reload()
+		self.assertEqual(contract.contracted_items[0].qty, 5)  # untouched until approval
+
+		approve_addendum(addendum)
+		contract.reload()
+		self.assertEqual((contract.contracted_items[0].qty, contract.contracted_items[0].unit_price), (8, 120))
+		self.assertEqual(contract.contract_labor_items[0].qty, 8)
+		self.assertAlmostEqual(contract.grand_total, 960.0, places=6)
+		self.assertEqual(str(addendum.effective_date), frappe.utils.today())
+
+	def test_update_below_invoiced_blocked(self):
+		contract, boq_row = make_amendable_contract("add_below_inv")
+		addendum = make_addendum(contract, [
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Update", "new_qty": 3, "new_unit_price": 100},
+		])
+		with mock.patch(INVOICED, return_value={"qty": 4.0, "amount": 400.0, "draft_qty": 0.0}):
+			self.assertRaises(frappe.ValidationError, addendum.insert, ignore_permissions=True)
+		self.assertTrue(addendum.get("addendum_items")[0].invoiced_qty == 4.0)
+
+	def test_update_without_change_blocked(self):
+		contract, boq_row = make_amendable_contract("add_nochange")
+		addendum = make_addendum(contract, [
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Update", "new_qty": 5, "new_unit_price": 100},
+		])
+		self.assertRaises(frappe.ValidationError, addendum.insert, ignore_permissions=True)
+
+	def test_delete_removes_row_and_its_resources(self):
+		contract, boq_row = make_amendable_contract("add_delete")
+		addendum = make_addendum(contract, [
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Delete"},
+		])
+		addendum.insert(ignore_permissions=True)
+		self.assertAlmostEqual(addendum.grand_total_delta, -500.0, places=6)
+
+		approve_addendum(addendum)
+		contract.reload()
+		self.assertEqual(len(contract.contracted_items), 0)
+		self.assertEqual(len(contract.contract_labor_items), 0)
+		self.assertEqual(contract.grand_total, 0)
+
+	def test_delete_invoiced_row_blocked(self):
+		contract, boq_row = make_amendable_contract("add_delete_inv")
+		addendum = make_addendum(contract, [
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Delete"},
+		])
+		with mock.patch(INVOICED, return_value={"qty": 2.0, "amount": 200.0, "draft_qty": 0.0}):
+			self.assertRaises(frappe.ValidationError, addendum.insert, ignore_permissions=True)
+
+	def test_add_row_with_payment_conditions_must_total_100(self):
+		contract, boq_row = make_amendable_contract("add_conditions", with_conditions=True)
+
+		def with_conditions(*percents):
+			return make_addendum(
+				contract,
+				[{"action": "Add", "work_item": boq_row.name, "qty_delta": 2, "unit_price": 150}],
+				[{"work_item": boq_row.name, "condition": "Stage %s" % i, "percent": p} for i, p in enumerate(percents, 1)],
+			)
+
+		self.assertRaises(frappe.ValidationError, with_conditions(50, 40).insert, ignore_permissions=True)
+
+		addendum = with_conditions(50, 50)
+		addendum.insert(ignore_permissions=True)
+		approve_addendum(addendum)
+		contract.reload()
+		self.assertEqual(len(contract.contracted_items), 2)
+		self.assertEqual(contract.contracted_items[1].addendum, addendum.name)
+		self.assertEqual(sorted(c.percent for c in contract.payment_conditions if c.work_item == boq_row.name), [50, 50])
+
+	def test_conditions_rejected_when_contract_has_none(self):
+		contract, boq_row = make_amendable_contract("add_no_conditions")
+		addendum = make_addendum(
+			contract, [{"action": "Add", "work_item": boq_row.name, "qty_delta": 1, "unit_price": 100}],
+			[{"work_item": boq_row.name, "condition": "Stage", "percent": 100}],
+		)
+		self.assertRaises(frappe.ValidationError, addendum.insert, ignore_permissions=True)
+
+	def test_second_addendum_on_same_row_blocked_while_first_in_flight(self):
+		contract, boq_row = make_amendable_contract("add_concurrent")
+		base = contract.contracted_items[0].name
+
+		def update_to(qty):
+			addendum = make_addendum(contract, [{"base_contract_item": base, "action": "Update", "new_qty": qty, "new_unit_price": 100}])
+			addendum.insert(ignore_permissions=True)
+			return addendum
+
+		first, second = update_to(6), update_to(7)
+		apply_workflow(first, "Submit for Approval")
+		self.assertRaises(frappe.ValidationError, apply_workflow, second, "Submit for Approval")
+
+	def test_closed_or_unapproved_contract_blocked(self):
+		contract, boq_row = make_amendable_contract("add_closed")
+		contract.db_set("is_closed", 1, update_modified=False)
+		addendum = make_addendum(contract, [
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Update", "new_qty": 6, "new_unit_price": 100},
+		])
+		self.assertRaises(frappe.ValidationError, addendum.insert, ignore_permissions=True)
+
+	def test_unchanged_loaded_rows_add_nothing_to_total_or_ceo_flag(self):
+		contract, boq_row = make_amendable_contract("add_unchanged")
+		base = contract.contracted_items[0].name
+		addendum = make_addendum(contract, [
+			{"base_contract_item": base},
+			{"action": "Add", "work_item": boq_row.name, "qty_delta": 1, "unit_price": 50},
+		])
+		addendum.insert(ignore_permissions=True)
+		self.assertAlmostEqual(addendum.grand_total_delta, 50.0, places=6)
+		self.assertEqual(addendum.addendum_items[0].amount, 0)
+
+	def test_checklist_and_effective_date_guards(self):
+		contract, boq_row = make_amendable_contract("add_guards")
+		addendum = make_addendum(contract, [
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Update", "new_qty": 6, "new_unit_price": 100},
+		])
+		addendum.insert(ignore_permissions=True)
+		addendum.checklist_attachment = "/files/x.pdf"
+		self.assertRaises(frappe.ValidationError, addendum.save)

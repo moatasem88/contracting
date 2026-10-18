@@ -101,6 +101,39 @@ def line_key(row):
 	return None
 
 
+def validate_condition_groups(rows, only_keys=None):
+	"""FR-22/FR-23: payment condition rows are grouped by the line they
+	belong to (line_key - the contract-wide default has key None) and each
+	group must total 100%. only_keys limits the check to those groups -
+	Contractor Contract Addendum uses it so an addendum is only held to the
+	groups it actually touched, not to a pre-existing group it never edited.
+	Shared by SubcontractorContract and Contractor Contract Addendum.
+	"""
+	groups = {}
+	for row in rows:
+		# Follows Tender BRD (FR-16): a template-scoped condition is its own
+		# group - keying on work_item alone would fold it into the
+		# contract-wide default (both blank).
+		groups.setdefault(line_key(row), []).append(row)
+
+	for key, group_rows in groups.items():
+		if only_keys is not None and key not in only_keys:
+			continue
+		total = sum(flt(row.get("percent")) for row in group_rows)
+		if abs(total - 100.0) > TOLERANCE:
+			if not key:
+				label = _("the contract-wide default")
+			elif key[0] == "tender":
+				label = _("work item {0}").format(key[1])
+			else:
+				label = _("work item template {0}").format(key[1])
+			frappe.throw(
+				_("Payment Conditions for {0} must sum to 100% - found {1}%.").format(
+					frappe.bold(label), flt(total)
+				)
+			)
+
+
 def validate_resource_item(table_fieldname, item, idx):
 	"""FR-08: the per-tab Item rule for template-sourced and extra rows."""
 	fieldname, expected, label = ITEM_RULE_BY_CONTRACT_TABLE[table_fieldname]

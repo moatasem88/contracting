@@ -14,7 +14,10 @@ app_license = "MIT"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/contracting/css/contracting.css"
-app_include_js = "/assets/contracting/js/tax_charge_type.js"
+app_include_js = [
+    "/assets/contracting/js/tax_charge_type.js",
+    "/assets/contracting/js/expand_view.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/contracting/css/contracting.css"
@@ -98,6 +101,11 @@ from contracting.patches.create_contractor_invoice_workflow import (
     TRANSITIONS as _CI_WORKFLOW_TRANSITIONS,
     WORKFLOW_NAME as _CI_WORKFLOW_NAME,
 )
+from contracting.patches.rebuild_contract_and_addendum_approval_chain_2026_10_18 import (
+    STATES as _CHAIN_STATES,
+    TRANSITIONS as _CHAIN_TRANSITIONS,
+    WORKFLOWS as _CHAIN_WORKFLOWS,
+)
 from contracting.patches.create_tender_roles import TENDER_ROLES as _TENDER_ROLES
 from contracting.patches.create_contractor_invoice_roles import CONTRACTOR_INVOICE_ROLES as _CI_ROLES
 from contracting.patches.create_contracts_engineer_role import CONTRACTS_ENGINEER_ROLE as _CE_ROLE
@@ -118,19 +126,19 @@ fixtures = [
             ["Contracts Manager", _PROJECTS_DIRECTOR_ROLE, _CE_ROLE, *_TENDER_ROLES, *_CI_ROLES],
         ]],
     },
-    {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME, _CI_WORKFLOW_NAME]]]},
+    {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME, _CI_WORKFLOW_NAME, *_CHAIN_WORKFLOWS]]]},
     {
         "dt": "Workflow State",
         "filters": [[
             "name", "in",
-            sorted({s[0] for s in _WORKFLOW_STATES} | {s[0] for s in _CI_WORKFLOW_STATES}),
+            sorted({s[0] for s in _WORKFLOW_STATES} | {s[0] for s in _CI_WORKFLOW_STATES} | {s[0] for s in _CHAIN_STATES}),
         ]],
     },
     {
         "dt": "Workflow Action Master",
         "filters": [[
             "name", "in",
-            sorted({t[1] for t in _WORKFLOW_TRANSITIONS} | {t[1] for t in _CI_WORKFLOW_TRANSITIONS}),
+            sorted({t[1] for t in _WORKFLOW_TRANSITIONS} | {t[1] for t in _CI_WORKFLOW_TRANSITIONS} | {t[1] for t in _CHAIN_TRANSITIONS}),
         ]],
     },
     {

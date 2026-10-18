@@ -103,6 +103,27 @@ def get_contract_retention_rate(contract_name):
 	return flt(rate)
 
 
+def contract_item_title(contract_item, description=None):
+	"""What a Contractor Invoice row shows for its contract line (link titles
+	fall back to the raw row id when this is blank). The line's own
+	description wins; a line created through a path that skipped validate
+	(db_insert) can have none, so fall back to the Tender BOQ line's
+	description/name or the Work Item Template's name (2026-10-18 BRD FR-10).
+	"""
+	if description:
+		return description
+	line = frappe.db.get_value(
+		"Contractor Contract Item", contract_item, ["work_item", "work_item_template"], as_dict=True
+	)
+	if not line:
+		return description
+	if line.work_item:
+		boq = frappe.db.get_value("Tender BOQ Item", line.work_item, ["description", "item_name"], as_dict=True)
+		if boq:
+			return boq.description or boq.item_name
+	return line.work_item_template or description
+
+
 def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_parent=None, retention_rate=None):
 	"""Shared validate() logic for Contractor Invoice and Client Progress
 	Invoice: both are a cumulative-percent-complete claim against the rows
@@ -182,7 +203,7 @@ def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_pare
 		row.retention_amount = row.this_period_amount * retention_rate / 100.0
 		row.net_amount = row.this_period_amount - row.retention_amount
 		if own_doctype == "Contractor Invoice":
-			row.description = ti.get("description")
+			row.description = contract_item_title(source_name, ti.get("description"))
 
 		total_this_period += row.this_period_amount
 		total_retention += row.retention_amount
@@ -317,7 +338,7 @@ def get_item_progress_context(contract_item, own_doctype, doc_name=None, source_
 	return {
 		"qty_allocated": ci.qty or 0,
 		"rate": ci.get(rate_field) or 0,
-		"description": ci.description,
+		"description": contract_item_title(contract_item, ci.description),
 		"parent": ci.parent,
 		"prior_max_qty": prior_max_qty,
 		"prior_invoiced_amount": prior_invoiced_amount,
@@ -398,7 +419,7 @@ def get_condition_progress_context(contract_item, payment_condition, doc_name=No
 	return {
 		"qty_allocated": flt(ci.qty),
 		"rate": ci.unit_price or 0,
-		"description": ci.description,
+		"description": contract_item_title(contract_item, ci.description),
 		"condition_percent": flt(condition.percent),
 		"prior_max_qty": prior_max_qty,
 		"prior_invoiced_amount": prior_invoiced_amount,
@@ -474,7 +495,7 @@ def compute_condition_progress_invoice(doc):
 			)
 
 		row.condition_label = condition.condition
-		row.description = ci.description
+		row.description = contract_item_title(row.contract_item, ci.description)
 		row.condition_percent = flt(condition.percent)
 		row.rate = ci.unit_price or 0
 		# FR-01/02: every condition on a line shares the same, full ceiling
@@ -519,7 +540,7 @@ def compute_condition_progress_invoice(doc):
 			"qty_allocated": 0.0, "cumulative_qty_complete": 0.0, "this_period_qty": 0.0,
 			"previously_invoiced_amount": 0.0, "this_period_amount": 0.0,
 			"retention_amount": 0.0, "net_amount": 0.0, "rate": row.rate,
-			"description": ci.description,
+			"description": contract_item_title(row.contract_item, ci.description),
 		})
 		acc["qty_allocated"] = flt(ci.qty)
 		# FR-07: value-weighted equivalent qty - each condition's own

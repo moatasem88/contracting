@@ -1,5 +1,10 @@
 import frappe
 
+# SUPERSEDED 2026-10-18 by rebuild_contract_and_addendum_approval_chain_2026_10_18.py
+# (the live workflow never received this chain; the 2026-10-18 BRD defines the
+# final one, with different state names). execute() is a deliberate no-op so
+# running it can no longer reintroduce the old shape.
+
 # 2026-09-27 BRD: extends the existing Subcontractor Contract Approval
 # workflow in place - the deployed chain (Contracts Manager -> cost control
 # manager -> conditional CEO) skips Projects Director, a Cost Control
@@ -56,6 +61,8 @@ NEW_STATES = (
 
 
 def execute():
+	return
+
 	if frappe.db.exists(
 		"Workflow Document State", {"parent": WORKFLOW_NAME, "state": PENDING_PD}
 	):

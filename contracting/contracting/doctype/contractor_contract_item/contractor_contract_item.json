@@ -8,6 +8,7 @@
  "field_order": [
   "work_item",
   "work_item_template",
+  "boq_work_item_template",
   "follows_tender",
   "pricing_mode",
   "description",
@@ -47,6 +48,18 @@
    "set_only_once": 1,
    "in_list_view": 1,
    "columns": 2
+  },
+  {
+   "fieldname": "boq_work_item_template",
+   "fieldtype": "Link",
+   "label": "BOQ Work Item Template",
+   "options": "Work Item Template V2",
+   "fetch_from": "work_item.work_item_template",
+   "read_only": 1,
+   "no_copy": 1,
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "The Work Item Template recorded on this line's Tender BOQ Item (display only; template-mode lines use Work Item Template instead)."
   },
   {
    "default": "1",

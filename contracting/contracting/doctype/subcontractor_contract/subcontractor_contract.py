@@ -5,6 +5,7 @@ from frappe.model.document import Document
 from frappe.utils import cint, flt
 
 from contracting.contracting.utils import allocation
+from contracting.contracting.utils import approval_guards
 from contracting.contracting.utils.allocation import (
 	EQUIPMENT,
 	EQUIPMENT_DOCTYPE,
@@ -53,13 +54,20 @@ CEO_APPROVAL_WORK_ITEM_THRESHOLD = 250000
 # always looking at the same numbers the next approver will see.
 EDITABLE_STATES = ("", "Draft")
 
+# State the Draft -> Submit for Approval transition lands in; the overlap
+# check (validate_no_overlapping_contract) fires on entering it.
+SUBMITTED_STATE = "Pending Contracts Manager Approval"
+
 
 class SubcontractorContract(Document):
 	def validate(self):
+		approval_guards.enforce_checklist_window(self)
+		approval_guards.protect_effective_date(self)
 		self.set_default_company()
 		self.set_project_tenders()
 		self.apply_follows_tender_rules()
 		self.validate_subcontractor()
+		self.validate_no_overlapping_contract()
 		self.enforce_frozen_figures()
 		self.validate_contracted_items()
 		self.prune_orphaned_resource_rows()
@@ -80,6 +88,7 @@ class SubcontractorContract(Document):
 		self.set_ceo_approval_flag()
 
 	def before_submit(self):
+		approval_guards.stamp_effective_date(self)
 		self.validate_attachment()
 		self.warn_if_no_retention()
 		# Re-run availability inside the submitting transaction. Rows were
@@ -157,6 +166,80 @@ class SubcontractorContract(Document):
 						)
 					)
 				seen_templates[row.work_item_template] = row.idx
+
+	def validate_no_overlapping_contract(self):
+		"""2026-10-18 BRD FR-06: on Submit for Approval, block when another
+		live contract for the same contractor and project already covers any
+		of this contract's work items. A work item is shared when the
+		Tender BOQ line is the same, or when the Work Item Template is the
+		same on either side (a template-mode line vs a BOQ line carrying that
+		template). Only checked on the move out of Draft, so existing
+		duplicates and later edits are untouched.
+		"""
+		before = self.get_doc_before_save()
+		if self.workflow_state != SUBMITTED_STATE:
+			return
+		if before and (before.workflow_state or "") not in EDITABLE_STATES:
+			return
+		if not (self.contractor_name and self.project and self.contracted_items):
+			return
+
+		# Serialise concurrent submissions for the same contractor: the rival
+		# rows being compared are not the ones about to change, so locking
+		# them would not stop two simultaneous submits both passing.
+		frappe.db.sql("select name from `tabSupplier` where name=%s for update", (self.contractor_name,))
+
+		rivals = frappe.get_all(
+			"Subcontractor Contract",
+			filters={
+				"contractor_name": self.contractor_name,
+				"project": self.project,
+				"docstatus": ["<", 2],
+				"is_closed": 0,
+				"workflow_state": ["not in", ["Rejected", "cancelled"]],
+				"name": ["!=", self.name],
+			},
+			pluck="name",
+		)
+		if not rivals:
+			return
+
+		my_items, my_templates = set(), {}
+		for row in self.contracted_items:
+			if row.work_item:
+				my_items.add(row.work_item)
+			template = row.work_item_template or (
+				frappe.db.get_value("Tender BOQ Item", row.work_item, "work_item_template") if row.work_item else None
+			)
+			if template:
+				my_templates.setdefault(template, row.work_item or template)
+
+		conflicts = {}
+		for rival_row in frappe.db.sql(
+			"""select cci.parent, cci.work_item,
+				coalesce(nullif(cci.work_item_template, ''), boq.work_item_template) as template
+			from `tabContractor Contract Item` cci
+			left join `tabTender BOQ Item` boq on boq.name = cci.work_item
+			where cci.parenttype = 'Subcontractor Contract' and cci.parent in %(rivals)s""",
+			{"rivals": rivals},
+			as_dict=True,
+		):
+			if rival_row.work_item and rival_row.work_item in my_items:
+				conflicts.setdefault(rival_row.parent, set()).add(rival_row.work_item)
+			elif rival_row.template and rival_row.template in my_templates:
+				conflicts.setdefault(rival_row.parent, set()).add(rival_row.template)
+
+		if conflicts:
+			frappe.throw(
+				_("This contractor already has a live contract on this project that covers the same work items. "
+				  "{0}").format(
+					"; ".join(
+						_("{0}: {1}").format(frappe.bold(name), ", ".join(sorted(items)))
+						for name, items in sorted(conflicts.items())
+					)
+				),
+				title=_("Overlapping Contract"),
+			)
 
 	def validate_subcontractor(self):
 		if not self.contractor_name:
@@ -600,27 +683,7 @@ class SubcontractorContract(Document):
 		contract-wide default (rows with no Work Item) and, independently,
 		each work item's override set (rows naming that Work Item).
 		"""
-		groups = {}
-		for row in self.payment_conditions:
-			# Follows Tender BRD (FR-16): a template-scoped condition is its
-			# own group - keying on work_item alone would fold it into the
-			# contract-wide default (both blank).
-			groups.setdefault(line_key(row), []).append(row)
-
-		for key, rows in groups.items():
-			total = sum(flt(row.percent) for row in rows)
-			if abs(total - 100.0) > TOLERANCE:
-				if not key:
-					label = _("the contract-wide default")
-				elif key[0] == "tender":
-					label = _("work item {0}").format(key[1])
-				else:
-					label = _("work item template {0}").format(key[1])
-				frappe.throw(
-					_("Payment Conditions for {0} must sum to 100% - found {1}%.").format(
-						frappe.bold(label), flt(total)
-					)
-				)
+		allocation.validate_condition_groups(self.payment_conditions)
 
 	# -- material conflict (FR-14 / FR-15) ---------------------------------
 

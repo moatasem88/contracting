@@ -156,6 +156,12 @@ frappe.ui.form.on('Subcontractor Contract', {
 	},
 
 	refresh(frm) {
+		// 2026-10-18 BRD FR-09: shared Expand View (public/js/expand_view.js).
+		contracting.expand_view.attach(frm, [
+			{fieldname: 'contracted_items', doctype: 'Contractor Contract Item'},
+			{fieldname: 'payment_conditions', doctype: 'Contractor Contract Payment Condition'},
+		]);
+
 		frm.toggle_display('items_subcontracted', (frm.doc.items_subcontracted || []).length > 0);
 		setup_buttons(frm);
 		refresh_payment_condition_category_options(frm);

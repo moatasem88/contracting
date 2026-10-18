@@ -49,6 +49,7 @@
   "attached_contract",
   "workflow_state",
   "is_closed",
+  "effective_date",
   "material_tab",
   "contract_material_items",
   "labor_tab",
@@ -305,7 +306,8 @@
    "fieldname": "checklist_attachment",
    "fieldtype": "Attach",
    "label": "Cost Control Checklist",
-   "no_copy": 1
+   "no_copy": 1,
+   "read_only_depends_on": "eval:doc.workflow_state!=\"Pending Cost Control Engineer Review\""
   },
   {
    "default": "0",
@@ -345,6 +347,14 @@
    "label": "Closed",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "label": "Effective Date",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Stamped automatically when the document reaches final approval. Cannot be edited."
   },
   {
    "depends_on": "eval:doc.type_subcontractor==\"Supplying and installing\"",
