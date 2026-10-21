@@ -1,0 +1,235 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "creation": "2026-08-30 00:00:00",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "attachment_type",
+  "project",
+  "work_item",
+  "department",
+  "column_break_main_1",
+  "attachment_version",
+  "parent_attachment",
+  "date",
+  "attachment",
+  "section_break_desc",
+  "description",
+  "zone",
+  "section_break_response",
+  "code",
+  "reply_date",
+  "approved_by",
+  "consultant_office",
+  "response_attachment",
+  "section_break_history",
+  "history",
+  "root_attachment",
+  "base_counter",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "attachment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Attachment Type",
+   "options": "IR\nRFI\nRFP\nSD\nMIR\nQS\nMS",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Project",
+   "reqd": 1
+  },
+  {
+   "fieldname": "work_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Work Item",
+   "options": "work_item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Department",
+   "options": "STR\nELEV\nELEC\nMEC",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_main_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "attachment_version",
+   "fieldtype": "Check",
+   "label": "Attachment Version"
+  },
+  {
+   "depends_on": "eval:doc.attachment_version",
+   "fieldname": "parent_attachment",
+   "fieldtype": "Link",
+   "label": "Parent Attachment",
+   "mandatory_depends_on": "eval:doc.attachment_version",
+   "options": "Project Document"
+  },
+  {
+   "default": "Today",
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "label": "Attachment",
+   "no_copy": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_desc",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Data",
+   "label": "Zone"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_response",
+   "fieldtype": "Section Break",
+   "label": "Consultant Response"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "code",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "in_standard_filter": 1,
+   "label": "Code",
+   "options": "\nA\nB\nC\nD",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "reply_date",
+   "fieldtype": "Date",
+   "hidden": 1,
+   "label": "Reply Date",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Approved By",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "consultant_office",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Consultant Office",
+   "options": "Engineering consulting office",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "response_attachment",
+   "fieldtype": "Attach",
+   "hidden": 1,
+   "label": "Response Attachment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_history",
+   "fieldtype": "Section Break",
+   "label": "History",
+   "no_copy": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "history",
+   "fieldtype": "Table",
+   "label": "History",
+   "options": "Project Document History",
+   "read_only": 1
+  },
+  {
+   "fieldname": "root_attachment",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Root Attachment",
+   "options": "Project Document",
+   "read_only": 1
+  },
+  {
+   "fieldname": "base_counter",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Base Counter",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Project Document",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-08-30 14:25:50.923218",
+ "modified_by": "Administrator",
+ "module": "Contracting",
+ "name": "Project Document",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "attachment_type"
+}
