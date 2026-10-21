@@ -14,7 +14,10 @@ app_license = "MIT"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/contracting/css/contracting.css"
-app_include_js = "/assets/contracting/js/tax_charge_type.js"
+app_include_js = [
+    "/assets/contracting/js/tax_charge_type.js",
+    "/assets/contracting/js/expand_view.js",
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/contracting/css/contracting.css"
@@ -41,7 +44,8 @@ doctype_js = {
               "Task" : "public/js/task.js",
               "Tender" : "public/js/tender_expand_view.js",
               "Project" : "public/js/project.js",
-              "Sales Order" : "public/js/sales_order.js"
+              "Sales Order" : "public/js/sales_order.js",
+              "Item" : "public/js/item.js"
 
 
 
@@ -98,28 +102,44 @@ from contracting.patches.create_contractor_invoice_workflow import (
     TRANSITIONS as _CI_WORKFLOW_TRANSITIONS,
     WORKFLOW_NAME as _CI_WORKFLOW_NAME,
 )
+from contracting.patches.rebuild_contract_and_addendum_approval_chain_2026_10_18 import (
+    STATES as _CHAIN_STATES,
+    TRANSITIONS as _CHAIN_TRANSITIONS,
+    WORKFLOWS as _CHAIN_WORKFLOWS,
+)
 from contracting.patches.create_tender_roles import TENDER_ROLES as _TENDER_ROLES
 from contracting.patches.create_contractor_invoice_roles import CONTRACTOR_INVOICE_ROLES as _CI_ROLES
+from contracting.patches.create_contracts_engineer_role import CONTRACTS_ENGINEER_ROLE as _CE_ROLE
+
+# Projects Director already exists live (created by hand, pre-dating this
+# app's fixtures discipline) but was never captured by any filter here - the
+# 2026-09-27 approval-chain rebuild is the first thing in this app to
+# reference it, so it's added explicitly now rather than left to keep
+# existing only in site1.local's DB.
+_PROJECTS_DIRECTOR_ROLE = "Projects Director"
 
 fixtures = [
     {"dt": "Custom Field", "filters": [["name", "in", _custom_field_names()]]},
     {
         "dt": "Role",
-        "filters": [["name", "in", ["Contracts Manager", *_TENDER_ROLES, *_CI_ROLES]]],
+        "filters": [[
+            "name", "in",
+            ["Contracts Manager", _PROJECTS_DIRECTOR_ROLE, _CE_ROLE, *_TENDER_ROLES, *_CI_ROLES],
+        ]],
     },
-    {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME, _CI_WORKFLOW_NAME]]]},
+    {"dt": "Workflow", "filters": [["name", "in", [_WORKFLOW_NAME, _CI_WORKFLOW_NAME, *_CHAIN_WORKFLOWS]]]},
     {
         "dt": "Workflow State",
         "filters": [[
             "name", "in",
-            sorted({s[0] for s in _WORKFLOW_STATES} | {s[0] for s in _CI_WORKFLOW_STATES}),
+            sorted({s[0] for s in _WORKFLOW_STATES} | {s[0] for s in _CI_WORKFLOW_STATES} | {s[0] for s in _CHAIN_STATES}),
         ]],
     },
     {
         "dt": "Workflow Action Master",
         "filters": [[
             "name", "in",
-            sorted({t[1] for t in _WORKFLOW_TRANSITIONS} | {t[1] for t in _CI_WORKFLOW_TRANSITIONS}),
+            sorted({t[1] for t in _WORKFLOW_TRANSITIONS} | {t[1] for t in _CI_WORKFLOW_TRANSITIONS} | {t[1] for t in _CHAIN_TRANSITIONS}),
         ]],
     },
     {
@@ -159,6 +179,9 @@ fixtures = [
 #	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
 #
+has_permission = {
+	"Item": "contracting.contracting.controllers.item.has_permission",
+}
 # has_permission = {
 #	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
@@ -178,6 +201,10 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+    # Tender staff create resource Items only (controllers/item.py).
+    "Item":{
+    "validate":"contracting.contracting.controllers.item.validate"
+	},
     "Project":{
     "on_update":"contracting.contracting.utils.project_cost_billing.on_project_update"
 	},
@@ -307,6 +334,11 @@ doc_events = {
 # Overriding Methods
 # ------------------------------
 
+# Follows Tender BRD FR-15: Tender cost fields stay hidden from the contracts
+# department on API reads too, not only in the form - see the module docstring.
+before_request = ["contracting.contracting.api.permlevel_guard.apply_permlevel_on_guarded_reads"]
+after_request = ["contracting.contracting.api.permlevel_guard.scrub_tender_cost_from_response"]
+
 override_whitelisted_methods = {
 	# Core refuses Link fields that point at child rows; see the module docstring.
 	"frappe.client.validate_link": "contracting.contracting.api.link.validate_link",
@@ -320,11 +352,13 @@ standard_queries = {
 	"Tender Item": "contracting.contracting.api.link.child_row_query",
 	"Tender BOQ Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Labor Item": "contracting.contracting.api.link.child_row_query",
+	"Tender Subcontract Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Equipment Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Material Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Payment Condition": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Material Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Labor Item": "contracting.contracting.api.link.child_row_query",
+	"Contractor Contract Subcontract Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Equipment Item": "contracting.contracting.api.link.child_row_query",
 }
 

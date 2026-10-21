@@ -131,6 +131,7 @@ function load_item_context(frm, cdt, cdn, reset) {
 			}
 			recompute_item_row(frm, row, 'cumulative_qty_complete');
 			frm.refresh_field('items');
+			schedule_tree_render(frm);
 		}
 	});
 }
@@ -196,6 +197,7 @@ function load_condition_context(frm, cdt, cdn, reset) {
 			}
 			recompute_condition_row(frm, row, 'cumulative_qty_complete');
 			frm.refresh_field('condition_progress');
+			schedule_tree_render(frm);
 		}
 	});
 }
@@ -274,6 +276,7 @@ function seed_condition_progress(frm) {
 			setup_grid_search(frm, 'items');
 
 			set_items_entry_readonly(frm, true);
+			render_progress_tree(frm);
 		}
 	});
 }
@@ -307,6 +310,12 @@ frappe.ui.form.on('Contractor Invoice', {
 	},
 
 	refresh(frm) {
+		// 2026-10-18 BRD FR-14: shared Expand View (public/js/expand_view.js).
+		contracting.expand_view.attach(frm, [
+			{fieldname: 'items', doctype: 'Contractor Invoice Item'},
+			{fieldname: 'condition_progress', doctype: 'Contractor Invoice Condition Progress'},
+		]);
+
 		if (frm.doc.__islocal) return;
 
 		fetch_retention_rate(frm);
@@ -318,6 +327,7 @@ frappe.ui.form.on('Contractor Invoice', {
 		set_items_entry_readonly(frm, (frm.doc.condition_progress || []).length > 0);
 		setup_grid_search(frm, 'items');
 		setup_grid_search(frm, 'condition_progress');
+		render_progress_tree(frm);
 
 		if (frm.doc.purchase_invoice) {
 			frm.add_custom_button(__('Purchase Invoice'), () => frappe.set_route('purchase-invoice', frm.doc.purchase_invoice), __('View'));
@@ -486,3 +496,224 @@ frappe.ui.form.on('Contractor Invoice Condition Progress', {
 		refresh_totals_preview(frm);
 	}
 });
+
+// ---------------------------------------------------------------------------
+// 2026-10-18 BRD FR-11-14: tree view of Progress. Presentation only - one
+// parent row per Contractor Invoice Item (work item), its Condition Progress
+// rows beneath it. Every edit goes through frappe.model.set_value on the
+// existing Condition Progress row, so the handlers above (recompute, totals
+// preview) and the server-side math run exactly as they do in the grids.
+// Only used when the invoice has condition_progress rows; a contract without
+// Payment Conditions keeps the plain Items grid.
+// ---------------------------------------------------------------------------
+
+// 2026-10-20: This Period Qty is no longer entered in the tree (Contract Qty
+// shows there instead); it is still derived from Cumulative Qty / % Complete.
+const TREE_ENTRY_FIELDS = ['cumulative_qty_complete', 'percent_complete'];
+const TREE_COMPUTED_FIELDS = ['this_period_amount', 'retention_amount', 'net_amount'];
+const TREE_HIDE_CLASS = 'contracting-progress-grid-hidden';
+
+// The context loaders above answer asynchronously, one call per row; one
+// debounced render covers the burst.
+const schedule_tree_render = frappe.utils.debounce((frm) => render_progress_tree(frm), 150);
+
+function tree_in_use(frm) {
+	return (frm.doc.condition_progress || []).length > 0 && !frm.__show_native_progress_tables;
+}
+
+function apply_tree_visibility(frm) {
+	if (!document.getElementById('contracting-progress-tree-style')) {
+		$('<style id="contracting-progress-tree-style">')
+			.text(`.${TREE_HIDE_CLASS} { display: none !important; }
+			.contracting-progress-tree td, .contracting-progress-tree th { padding: 4px 8px; vertical-align: middle; }
+			.contracting-progress-tree .tree-parent td { background: var(--subtle-fg); font-weight: 600; }
+			.contracting-progress-tree .tree-child td:first-child { padding-left: 32px; }
+			.contracting-progress-tree input.tree-input { width: 100px; text-align: right; }
+			.contracting-progress-tree .num { text-align: right; white-space: nowrap; }`)
+			.appendTo(document.head);
+	}
+	const use_tree = tree_in_use(frm);
+	['items', 'condition_progress'].forEach(fieldname => {
+		const field = frm.fields_dict[fieldname];
+		if (field) field.$wrapper.toggleClass(TREE_HIDE_CLASS, use_tree);
+	});
+	frm.toggle_display('condition_progress_section', !use_tree);
+	frm.toggle_display('progress_tree', (frm.doc.condition_progress || []).length > 0);
+}
+
+function tree_groups(frm) {
+	const children = {};
+	(frm.doc.condition_progress || []).forEach(row => {
+		(children[row.contract_item] = children[row.contract_item] || []).push(row);
+	});
+	const parents = (frm.doc.items || []).filter(item => children[item.contract_item]);
+	return {parents, children};
+}
+
+function tree_money(value) {
+	return format_currency(flt(value), frappe.defaults.get_default('currency'));
+}
+
+function tree_title(doctype, name, fallback) {
+	return fallback || (frappe.utils.get_link_title ? frappe.utils.get_link_title(doctype, name) : null) || name;
+}
+
+function tree_rollup(rows) {
+	const sum = (field) => rows.reduce((total, row) => total + flt(row[field]), 0);
+	return {
+		this_period_amount: sum('this_period_amount'),
+		retention_amount: sum('retention_amount'),
+		net_amount: sum('net_amount'),
+		// value-weighted, as the server rollup does (FR-07 of the 09-01 BRD)
+		percent_complete: rows.reduce((total, row) => total + flt(row.percent_complete) * flt(row.condition_percent) / 100, 0)
+	};
+}
+
+function render_progress_tree(frm) {
+	apply_tree_visibility(frm);
+	const field = frm.fields_dict.progress_tree;
+	if (!field) return;
+	if (!tree_in_use(frm)) {
+		field.$wrapper.find('.contracting-progress-tree-root').remove();
+		if ((frm.doc.condition_progress || []).length) {
+			field.$wrapper.html(`<div class="contracting-progress-tree-root">
+				<button class="btn btn-xs btn-default tree-switch">${__('Tree View')}</button></div>`);
+			field.$wrapper.find('.tree-switch').on('click', () => {
+				frm.__show_native_progress_tables = false;
+				render_progress_tree(frm);
+			});
+		}
+		return;
+	}
+
+	// Template name + description per line (2026-10-20), fetched once.
+	frm.__tree_titles = frm.__tree_titles || {};
+	const missing = [...new Set((frm.doc.items || []).map((item) => item.contract_item)
+		.filter((name) => name && !(name in frm.__tree_titles)))];
+	if (missing.length && !frm.__tree_titles_loading) {
+		frm.__tree_titles_loading = true;
+		frappe.call({
+			method: 'contracting.contracting.doctype.contractor_invoice.contractor_invoice.get_tree_titles',
+			args: {contract_items: missing},
+			callback(r) {
+				Object.assign(frm.__tree_titles, r.message || {});
+			},
+			always() {
+				// Mark every requested line, so a failed call can't refetch forever.
+				missing.forEach((name) => { if (!(name in frm.__tree_titles)) frm.__tree_titles[name] = {}; });
+				frm.__tree_titles_loading = false;
+				render_progress_tree(frm);
+			},
+		});
+	}
+
+	frm.__tree_collapsed = frm.__tree_collapsed || {};
+	const editable = !!(frm.fields_dict.condition_progress.grid.is_editable());
+	const search = (frm.__tree_search || '').toLowerCase();
+	const {parents, children} = tree_groups(frm);
+	const esc = frappe.utils.escape_html;
+
+	let html = `<div class="contracting-progress-tree-root">
+		<div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
+			<input type="text" class="form-control tree-search" style="max-width:300px" placeholder="${__('Search')}" value="${esc(frm.__tree_search || '')}">
+			<button class="btn btn-xs btn-default tree-expand-view">${__('Expand View')}</button>
+			<button class="btn btn-xs btn-default tree-switch">${__('Table View')}</button>
+		</div>
+		<div class="table-responsive"><table class="table table-bordered contracting-progress-tree"><thead><tr>
+			<th>${__('Work Item / Payment Condition')}</th><th class="num">${__('Cumulative Qty')}</th>
+			<th class="num">${__('Contract Qty')}</th><th class="num">${__('% Complete')}</th>
+			<th class="num">${__('This Period')}</th><th class="num">${__('Retention')}</th><th class="num">${__('Net')}</th>
+		</tr></thead><tbody>`;
+
+	parents.forEach(parent => {
+		const kids = children[parent.contract_item];
+		const titles = frm.__tree_titles[parent.contract_item] || {};
+		const parent_description = parent.description || titles.description
+			|| tree_title('Contractor Contract Item', parent.contract_item);
+		// Template name on top, the item's description under it (2026-10-20).
+		const parent_title = [titles.template, parent_description].filter(Boolean).join(' ');
+		const kid_matches = kids.filter(kid => !search
+			|| (kid.condition_label || '').toLowerCase().includes(search)
+			|| (kid.description || '').toLowerCase().includes(search));
+		const parent_matches = !search || parent_title.toLowerCase().includes(search);
+		if (!parent_matches && !kid_matches.length) return;
+
+		// A search that matched through the children expands the parent.
+		const collapsed = !search && !!frm.__tree_collapsed[parent.contract_item];
+		const shown_kids = parent_matches && !kid_matches.length ? kids : kid_matches;
+		const roll = tree_rollup(kids);
+		html += `<tr class="tree-parent" data-item="${esc(parent.contract_item)}">
+			<td><a class="tree-toggle" style="cursor:pointer">${collapsed ? '▸' : '▾'}</a>
+				${titles.template ? `${esc(titles.template)}<div class="text-muted small" style="font-weight:normal; padding-left:16px;">${esc(parent_description)}</div>` : esc(parent_description)}</td>
+			<td></td><td class="num">${flt(parent.qty_allocated)}</td><td class="num">${flt(roll.percent_complete).toFixed(2)}%</td>
+			<td class="num">${tree_money(roll.this_period_amount)}</td>
+			<td class="num">${tree_money(roll.retention_amount)}</td>
+			<td class="num">${tree_money(roll.net_amount)}</td></tr>`;
+		if (collapsed) return;
+		shown_kids.forEach(kid => {
+			const input = (fieldname) => editable
+				? `<input type="number" step="any" class="form-control input-xs tree-input" data-name="${esc(kid.name)}" data-field="${fieldname}" value="${flt(kid[fieldname])}">`
+				: flt(kid[fieldname]);
+			html += `<tr class="tree-child" data-name="${esc(kid.name)}">
+				<td>${esc(kid.condition_label || tree_title('Contractor Contract Payment Condition', kid.payment_condition))}
+					<span class="text-muted">(${flt(kid.condition_percent)}%)</span></td>
+				<td class="num">${input('cumulative_qty_complete')}</td>
+				<td class="num">${flt(kid.qty_allocated)}</td>
+				<td class="num">${input('percent_complete')}</td>
+				<td class="num" data-cell="this_period_amount">${tree_money(kid.this_period_amount)}</td>
+				<td class="num" data-cell="retention_amount">${tree_money(kid.retention_amount)}</td>
+				<td class="num" data-cell="net_amount">${tree_money(kid.net_amount)}</td></tr>`;
+		});
+	});
+	html += '</tbody></table></div></div>';
+	field.$wrapper.html(html);
+
+	field.$wrapper.find('.tree-search').on('input', frappe.utils.debounce(function () {
+		frm.__tree_search = $(this).val();
+		render_progress_tree(frm);
+		field.$wrapper.find('.tree-search').trigger('focus').get(0).setSelectionRange(1e6, 1e6);
+	}, 250));
+	field.$wrapper.find('.tree-switch').on('click', () => {
+		frm.__show_native_progress_tables = true;
+		render_progress_tree(frm);
+	});
+	field.$wrapper.find('.tree-expand-view').on('click', () => {
+		contracting.expand_view.open_grid(frm, 'condition_progress', 'Contractor Invoice Condition Progress');
+	});
+	field.$wrapper.find('.tree-parent .tree-toggle').on('click', function () {
+		const item = $(this).closest('tr').data('item');
+		frm.__tree_collapsed[item] = !frm.__tree_collapsed[item];
+		render_progress_tree(frm);
+	});
+	field.$wrapper.find('input.tree-input').on('change', function () {
+		const $input = $(this);
+		// Same entry path as the native grid cell: the doctype handlers
+		// above recompute the row and refresh the totals preview.
+		frappe.model.set_value('Contractor Invoice Condition Progress', $input.data('name'), $input.data('field'), flt($input.val()))
+			.then(() => update_tree_cells(frm));
+	});
+}
+
+// Refresh the computed cells in place after an edit, so the cell being
+// tabbed out of keeps its focus (a full re-render would drop it).
+function update_tree_cells(frm) {
+	const field = frm.fields_dict.progress_tree;
+	if (!field || !tree_in_use(frm)) return;
+	const {parents, children} = tree_groups(frm);
+	(frm.doc.condition_progress || []).forEach(row => {
+		const $row = field.$wrapper.find(`tr.tree-child[data-name="${row.name}"]`);
+		TREE_COMPUTED_FIELDS.forEach(fieldname => $row.find(`[data-cell="${fieldname}"]`).text(tree_money(row[fieldname])));
+		TREE_ENTRY_FIELDS.forEach(fieldname => {
+			const $input = $row.find(`input[data-field="${fieldname}"]`);
+			if (!$input.is(':focus')) $input.val(flt(row[fieldname]));
+		});
+	});
+	parents.forEach(parent => {
+		const roll = tree_rollup(children[parent.contract_item]);
+		const $cells = field.$wrapper.find(`tr.tree-parent[data-item="${parent.contract_item}"] td`);
+		$cells.eq(3).text(flt(roll.percent_complete).toFixed(2) + '%');
+		$cells.eq(4).text(tree_money(roll.this_period_amount));
+		$cells.eq(5).text(tree_money(roll.retention_amount));
+		$cells.eq(6).text(tree_money(roll.net_amount));
+	});
+}

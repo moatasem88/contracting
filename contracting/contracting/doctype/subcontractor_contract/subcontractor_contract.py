@@ -2,34 +2,40 @@ import erpnext
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from contracting.contracting.utils import allocation
+from contracting.contracting.utils import approval_guards
 from contracting.contracting.utils.allocation import (
 	EQUIPMENT,
 	EQUIPMENT_DOCTYPE,
+	INSTALL_ONLY,
 	LABOR_DOCTYPE,
-	LABOR_TYPES,
 	MATERIAL_DOCTYPE,
+	SUBCONTRACT_DOCTYPE,
 	SUPPLY_AND_INSTALL,
+	SUPPLY_WORKERS,
+	TEMPLATE_DOCTYPE,
 	TOLERANCE,
+	line_key,
 )
 
 RETENTION_CHARGE = "Retention"
 MANUAL_FALLBACK_CHARGE = "Material Supplied by Company (Manual Fallback)"
 
-# Payment Condition category -> which contract types actually populate that
-# resource tab (FR-14). Server-side truth, matching validate_labor_items /
-# validate_equipment_items below - Supply and Install populates all three
-# tabs, same as Install Only/Equipment populate their own single one.
+# Payment Condition category -> which contract types it may be used on
+# (FR-14, revised 2026-10-18 FR-22) - the same pools RESOURCE_PROPAGATION
+# gives each type. Mirrored in subcontractor_contract.js CATEGORY_TYPES.
 CATEGORY_TYPE_GATE = {
 	"Material": (SUPPLY_AND_INSTALL,),
-	"Labor": (*LABOR_TYPES, SUPPLY_AND_INSTALL),
+	"Labor": (SUPPLY_WORKERS, INSTALL_ONLY, SUPPLY_AND_INSTALL),
+	"Subcontract": (INSTALL_ONLY, SUPPLY_AND_INSTALL),
 	"Equipment": (EQUIPMENT, SUPPLY_AND_INSTALL),
 }
 _RESOURCE_FIELD_BY_CATEGORY_REVERSE = {
 	"material_item": "Material",
 	"labor_item": "Labor",
+	"subcontract_item": "Subcontract",
 	"equipment_item": "Equipment",
 }
 
@@ -40,33 +46,59 @@ COST_CONTROL_ROLE = "cost control manager"
 # FR-11: who may close a contract.
 CLOSE_CONTRACT_ROLES = ("Contracts Manager", "System Manager")
 
+# Price-ceiling/approval-chain rebuild (2026-09-27 BRD, FR-07a): a work
+# item's aggregated Contracted Items amount at or above this, on its first
+# Approved contract, forces CEO approval. Replaces the old whole-contract
+# Contracting Settings.ceo_approval_value_threshold trigger entirely.
+CEO_APPROVAL_WORK_ITEM_THRESHOLD = 250000
+
 # Editing the figures is only allowed in Draft (FR-20). Everything else -
 # the pending states, Approved, Rejected - is frozen, so an approver is
 # always looking at the same numbers the next approver will see.
 EDITABLE_STATES = ("", "Draft")
 
+# State the Draft -> Submit for Approval transition lands in; the overlap
+# check (validate_no_overlapping_contract) fires on entering it.
+SUBMITTED_STATE = "Pending Contracts Manager Approval"
+
 
 class SubcontractorContract(Document):
 	def validate(self):
+		approval_guards.enforce_checklist_window(self)
+		approval_guards.protect_effective_date(self)
 		self.set_default_company()
 		self.set_project_tenders()
+		self.apply_follows_tender_rules()
 		self.validate_subcontractor()
+		self.validate_no_overlapping_contract()
 		self.enforce_frozen_figures()
 		self.validate_contracted_items()
+		self.relink_contract_rows()
 		self.prune_orphaned_resource_rows()
+		self.propagate_new_line_resources()
+		self.stamp_contract_rows()
+		self.rescale_propagated_resources()
 		self.validate_material_items()
 		self.validate_labor_items()
+		self.validate_subcontract_items()
 		self.validate_equipment_items()
+		self.validate_tender_lines_carry_resources()
+		self.validate_component_qty()
 		self.validate_material_conflicts()
 		self.prune_orphaned_payment_condition_resources()
 		self.validate_payment_condition_resources()
 		self.validate_payment_conditions()
 		self.default_charge_cost_centers()
+		self.compute_component_pricing()
+		self.validate_price_ceiling()
+		self.compute_tender_reference()
+		self.compute_out_of_tender_scope()
 		self.calculate_totals()
 		self.validate_retention_rows()
 		self.set_ceo_approval_flag()
 
 	def before_submit(self):
+		approval_guards.stamp_effective_date(self)
 		self.validate_attachment()
 		self.warn_if_no_retention()
 		# Re-run availability inside the submitting transaction. Rows were
@@ -75,6 +107,7 @@ class SubcontractorContract(Document):
 		self.validate_allocation(lock=True)
 		self.validate_material_items(lock=True)
 		self.validate_labor_items(lock=True)
+		self.validate_subcontract_items(lock=True)
 		self.validate_equipment_items(lock=True)
 
 	# -- header ------------------------------------------------------------
@@ -96,22 +129,128 @@ class SubcontractorContract(Document):
 			self.set("project_tenders", [])
 			return
 
+		# Follows Tender BRD (FR-03): a project with no Tender is a valid
+		# contract now - its lines come from Work Item Templates instead, so
+		# an empty list is no longer an error.
 		tenders = get_project_tenders(self.project, self.department)
-		if not tenders:
-			if self.department:
-				frappe.throw(
-					_("Project {0} has no linked Tender in category {1}, so there is no BOQ to "
-					  "contract against.").format(frappe.bold(self.project), frappe.bold(self.department))
-				)
-			frappe.throw(
-				_("Project {0} has no linked Tender, so there is no BOQ to contract against.").format(
-					frappe.bold(self.project)
-				)
-			)
 		self.set("project_tenders", [{"tender": t} for t in tenders])
 
 	def project_tender_names(self):
 		return {row.tender for row in self.project_tenders}
+
+	def apply_follows_tender_rules(self):
+		"""Follows Tender BRD FR-03/04/05/06.
+
+		FR-03: no Project Tender -> the contract can only hold template
+		lines. FR-04: the header switch only moves while Contracted Items is
+		empty - checked against what was saved, since lines are what the
+		mode actually governs. FR-05: each line is either a Tender line or a
+		template line, fixed by which link it carries. FR-06: one row per
+		template, except rows an approved Addendum inserted (those mirror
+		how Tender-line addenda add a second row today).
+		"""
+		if not self.project_tenders:
+			self.follows_tender = 0
+
+		before = self.get_doc_before_save()
+		if (
+			before
+			and before.get("contracted_items")
+			and cint(before.follows_tender) != cint(self.follows_tender)
+		):
+			frappe.throw(_("Remove all Contracted Items before changing Follows Tender."))
+
+		seen_templates = {}
+		for row in self.contracted_items:
+			if bool(row.work_item) == bool(row.work_item_template):
+				frappe.throw(
+					_("Row {0}: set exactly one of Work Item (Tender line) or Work Item Template "
+					  "(template line).").format(row.idx)
+				)
+			row.follows_tender = 1 if row.work_item else 0
+
+			if row.work_item_template and not row.addendum:
+				if row.work_item_template in seen_templates:
+					frappe.throw(
+						_("Work Item Template {0} is already on row {1}.").format(
+							frappe.bold(row.work_item_template), seen_templates[row.work_item_template]
+						)
+					)
+				seen_templates[row.work_item_template] = row.idx
+
+	def validate_no_overlapping_contract(self):
+		"""2026-10-18 BRD FR-06: on Submit for Approval, block when another
+		live contract for the same contractor and project already covers any
+		of this contract's work items. A work item is shared when the
+		Tender BOQ line is the same, or when the Work Item Template is the
+		same on either side (a template-mode line vs a BOQ line carrying that
+		template). Only checked on the move out of Draft, so existing
+		duplicates and later edits are untouched.
+		"""
+		before = self.get_doc_before_save()
+		if self.workflow_state != SUBMITTED_STATE:
+			return
+		if before and (before.workflow_state or "") not in EDITABLE_STATES:
+			return
+		if not (self.contractor_name and self.project and self.contracted_items):
+			return
+
+		# Serialise concurrent submissions for the same contractor: the rival
+		# rows being compared are not the ones about to change, so locking
+		# them would not stop two simultaneous submits both passing.
+		frappe.db.sql("select name from `tabSupplier` where name=%s for update", (self.contractor_name,))
+
+		rivals = frappe.get_all(
+			"Subcontractor Contract",
+			filters={
+				"contractor_name": self.contractor_name,
+				"project": self.project,
+				"docstatus": ["<", 2],
+				"is_closed": 0,
+				"workflow_state": ["not in", ["Rejected", "cancelled"]],
+				"name": ["!=", self.name],
+			},
+			pluck="name",
+		)
+		if not rivals:
+			return
+
+		my_items, my_templates = set(), {}
+		for row in self.contracted_items:
+			if row.work_item:
+				my_items.add(row.work_item)
+			template = row.work_item_template or (
+				frappe.db.get_value("Tender BOQ Item", row.work_item, "work_item_template") if row.work_item else None
+			)
+			if template:
+				my_templates.setdefault(template, row.work_item or template)
+
+		conflicts = {}
+		for rival_row in frappe.db.sql(
+			"""select cci.parent, cci.work_item,
+				coalesce(nullif(cci.work_item_template, ''), boq.work_item_template) as template
+			from `tabContractor Contract Item` cci
+			left join `tabTender BOQ Item` boq on boq.name = cci.work_item
+			where cci.parenttype = 'Subcontractor Contract' and cci.parent in %(rivals)s""",
+			{"rivals": rivals},
+			as_dict=True,
+		):
+			if rival_row.work_item and rival_row.work_item in my_items:
+				conflicts.setdefault(rival_row.parent, set()).add(rival_row.work_item)
+			elif rival_row.template and rival_row.template in my_templates:
+				conflicts.setdefault(rival_row.parent, set()).add(rival_row.template)
+
+		if conflicts:
+			frappe.throw(
+				_("This contractor already has a live contract on this project that covers the same work items. "
+				  "{0}").format(
+					"; ".join(
+						_("{0}: {1}").format(frappe.bold(name), ", ".join(sorted(items)))
+						for name, items in sorted(conflicts.items())
+					)
+				),
+				title=_("Overlapping Contract"),
+			)
 
 	def validate_subcontractor(self):
 		if not self.contractor_name:
@@ -139,8 +278,8 @@ class SubcontractorContract(Document):
 
 		for fieldname in (
 			"contracted_items", "additional_costs", "payment_conditions",
-			"contract_material_items", "contract_labor_items", "contract_equipment_items",
-			"project_tenders",
+			"contract_material_items", "contract_labor_items", "contract_subcontract_items",
+			"contract_equipment_items", "project_tenders",
 		):
 			if self._table_signature(self.get(fieldname)) != self._table_signature(before.get(fieldname)):
 				frappe.throw(
@@ -154,7 +293,11 @@ class SubcontractorContract(Document):
 		return [
 			(
 				row.get("work_item"),
+				row.get("work_item_template"),
+				row.get("description") if row.get("work_item_template") else None,
+				row.get("item"),
 				row.get("labor_item"),
+				row.get("subcontract_item"),
 				row.get("equipment_item"),
 				row.get("material_item"),
 				flt(row.get("qty")),
@@ -194,6 +337,23 @@ class SubcontractorContract(Document):
 
 		project_tenders = self.project_tender_names()
 		for row in self.contracted_items:
+			if not row.work_item:
+				# Template line (FR-05): descriptive fields come off the
+				# template; no Tender membership/availability applies (FR-09).
+				# The description is only a default here (2026-10-20) - the
+				# engineer may reword it for this contract.
+				template = frappe.db.get_value(
+					TEMPLATE_DOCTYPE, row.work_item_template, ["template_name", "description", "uom"], as_dict=True
+				)
+				if not template:
+					frappe.throw(_("Row {0}: Work Item Template {1} does not exist.").format(
+						row.idx, frappe.bold(row.work_item_template)))
+				if not (row.description or "").strip():
+					row.description = template.description or template.template_name
+				row.uom = template.uom
+				self.validate_row_resource(row, None)
+				continue
+
 			work_item_row = allocation.get_work_item(row.work_item)
 
 			if work_item_row.parent not in project_tenders:
@@ -228,50 +388,44 @@ class SubcontractorContract(Document):
 		row.resource_item = None
 
 	def validate_allocation(self, lock=False):
-		"""FR-07-FR-10 via the shared reconciliation util.
+		"""FR-07-FR-10: display only since 2026-10-20 (partial contracts).
 
-		Only meaningful for Supply and Install: that type's Contracted
-		Items row *is* the allocation-relevant claim (a whole BOQ line's
-		quantity). Install Only / Equipment now carry their
-		allocation-relevant claim on the Labor/Equipment tabs instead
-		(validate_labor_items / validate_equipment_items) - for those
-		types, Contracted Items is a financial line only, decoupled from
-		any specific resource row.
-
-		Own rows are aggregated per work item first (a contract can carry
-		more than one row against the same one), then compared against
-		what is available once everything committed elsewhere is taken out.
+		Every type - Supply and Install included - now claims exactly the
+		resource rows it carries, so the real allocation guard is the per-row
+		check in _validate_resource_rows. A Contracted Items row's quantity is
+		in work-item units and is no longer drawn from a work-item-level pool;
+		this only refreshes the Available Qty it shows (the most units any of
+		the type's lines on that work item can still support).
 		"""
-		if not self.contracted_items or self.type_subcontractor != SUPPLY_AND_INSTALL:
+		tender_lines = [row for row in self.contracted_items if row.work_item]
+		if not tender_lines:
 			return
 
 		if lock:
-			allocation.lock_work_items([row.work_item for row in self.contracted_items])
+			allocation.lock_work_items([row.work_item for row in tender_lines])
 
-		own = {}
-		for row in self.contracted_items:
-			entry = own.setdefault(row.work_item, {"qty": 0.0, "idx": row.idx, "rows": []})
-			entry["qty"] += flt(row.qty)
-			entry["rows"].append(row)
-
-		for work_item, entry in own.items():
-			available = allocation.get_row_availability(
-				self.type_subcontractor, work_item, exclude_contract=self.name,
-			)
-
-			# Show what this document may still take, not a stale figure.
-			for row in entry["rows"]:
-				row.available_qty = available
-
-			if entry["qty"] > available + TOLERANCE:
-				frappe.throw(
-					_("Row {0}: cannot allocate {1} - only {2} remains available for {3}. "
-					  "Availability is reconciled across all contract types, so quantity committed "
-					  "under another type on the same work item reduces this."
-					  ).format(entry["idx"], flt(entry["qty"]), flt(available), frappe.bold(work_item))
+		available_by_work_item = {}
+		for row in tender_lines:
+			if row.work_item not in available_by_work_item:
+				available_by_work_item[row.work_item] = allocation.get_row_availability(
+					self.type_subcontractor, row.work_item, exclude_contract=self.name,
 				)
+			row.available_qty = available_by_work_item[row.work_item]
 
 	# -- resource tabs (FR-11-FR-19) ---------------------------------------
+
+	def relink_contract_rows(self):
+		"""2026-10-20: resource rows remember which Contracted Items row they
+		were taken for (contract_row). The client names a new row
+		"new-contractor-contract-item-N"; savedocs moves that to localname and
+		the row gets its real name before validate(), so repoint here."""
+		renamed = {row.get("localname"): row.name for row in self.contracted_items if row.get("localname")}
+		if not renamed:
+			return
+		for fieldname in self._resource_tables():
+			for row in self.get(fieldname):
+				if row.contract_row in renamed:
+					row.contract_row = renamed[row.contract_row]
 
 	def prune_orphaned_resource_rows(self):
 		"""FR-20: cascade-delete. A resource row whose work item is no
@@ -282,10 +436,36 @@ class SubcontractorContract(Document):
 		the grid already did. It is what actually guarantees the rule
 		under the API and Data Import, which bypass the client entirely.
 		"""
-		surviving = {row.work_item for row in self.contracted_items}
-		for fieldname in ("contract_material_items", "contract_labor_items", "contract_equipment_items"):
+		# Keyed on line_key (Follows Tender BRD): a line is a Tender work
+		# item *or* a Work Item Template. Only rows that belonged to a line
+		# that actually existed (on the saved document, or auto-propagated
+		# from one) are cascade-deleted - a hand-added extra row pointing at
+		# something that was never a line is an input error, not an orphan,
+		# and says so instead of silently disappearing (FR-08).
+		surviving = {line_key(row) for row in self.contracted_items} - {None}
+		live_rows = {row.name for row in self.contracted_items}
+		before = self.get_doc_before_save()
+		before_lines = {line_key(row) for row in before.contracted_items} if before else set()
+
+		for fieldname in self._resource_tables():
 			rows = self.get(fieldname)
-			kept = [row for row in rows if row.work_item in surviving]
+			kept = []
+			for row in rows:
+				key = line_key(row)
+				if row.contract_row and row.contract_row not in live_rows:
+					continue  # its own Contracted Items row was removed (2026-10-20)
+				if key is None or key in surviving:
+					# key None: left for _validate_resource_rows to reject.
+					kept.append(row)
+				elif key in before_lines or row.auto_propagated:
+					continue
+				else:
+					frappe.throw(
+						_("{0} row {1}: {2} is not a line on Contracted Items. Add the line first, "
+						  "or point the row at an existing line.").format(
+							_(self.meta.get_label(fieldname)), row.idx, frappe.bold(key[1])
+						)
+					)
 			if len(kept) != len(rows):
 				self.set(fieldname, kept)
 
@@ -297,15 +477,25 @@ class SubcontractorContract(Document):
 		self._validate_resource_rows("contract_material_items", MATERIAL_DOCTYPE, "material_item", lock=lock)
 
 	def validate_labor_items(self, lock=False):
-		"""FR-11/19: the Labor tab applies to Install Only, and (FR-06,
-		2026-08-30) Supply and Install - RESOURCE_PROPAGATION already
-		declares Supply and Install feeds all three resource tabs; this
-		gate has to agree or it wipes right back out what the client just
+		"""FR-11/19: the Labor tab applies to Labor and Installing contracts
+		(2026-10-18), and (FR-06, 2026-08-30) Supply and Install -
+		RESOURCE_PROPAGATION already declares which types feed it; this gate
+		has to agree or it wipes right back out what the client just
 		propagated."""
-		if self.type_subcontractor not in (*LABOR_TYPES, SUPPLY_AND_INSTALL):
+		if self.type_subcontractor not in (SUPPLY_WORKERS, INSTALL_ONLY, SUPPLY_AND_INSTALL):
 			self.set("contract_labor_items", [])
 			return
 		self._validate_resource_rows("contract_labor_items", LABOR_DOCTYPE, "labor_item", lock=lock)
+
+	def validate_subcontract_items(self, lock=False):
+		"""2026-10-18 BRD FR-13: the Subcontract tab applies to Installing
+		and Supply and Install."""
+		if self.type_subcontractor not in (INSTALL_ONLY, SUPPLY_AND_INSTALL):
+			self.set("contract_subcontract_items", [])
+			return
+		self._validate_resource_rows(
+			"contract_subcontract_items", SUBCONTRACT_DOCTYPE, "subcontract_item", lock=lock
+		)
 
 	def validate_equipment_items(self, lock=False):
 		"""FR-11: the Equipment tab applies to Equipment contracts, and
@@ -314,6 +504,155 @@ class SubcontractorContract(Document):
 			self.set("contract_equipment_items", [])
 			return
 		self._validate_resource_rows("contract_equipment_items", EQUIPMENT_DOCTYPE, "equipment_item", lock=lock)
+
+	def propagate_new_line_resources(self):
+		"""2026-10-20 (partial contracts): a *new* line that arrives with
+		none of its resource rows - an API / Data Import insert, which never
+		went through the Select Work Item dialog - takes all of them, the
+		same default the dialog ticks. A Tender line propagates from its
+		Tender resource rows, a template line (Follows Tender) from its Work
+		Item Template V2 - the server-side twin of subcontractor_contract.js
+		propagate_resources' first-time branch. A Tender line the engineer
+		later strips of every line is not refilled;
+		validate_tender_lines_carry_resources stops that instead."""
+		if self._figures_are_frozen():
+			return
+		before = self.get_doc_before_save()
+		existing_rows = {row.name for row in before.contracted_items} if before else set()
+		carried = {
+			line_key(row)
+			for fieldname, (_doctype, link_fieldname) in self._resource_tables().items()
+			for row in self.get(fieldname)
+			if (row.work_item and row.get(link_fieldname)) or (not row.work_item and row.work_item_template)
+		}
+		for row in self.contracted_items:
+			key = line_key(row)
+			if not key or row.name in existing_rows or key in carried or row.resources_propagated:
+				continue
+			if row.work_item:
+				propagated = allocation._propagated_resource_rows(
+					allocation.get_work_item(row.work_item), flt(row.qty), self.type_subcontractor, self.name
+				)
+			else:
+				propagated = allocation._template_resource_rows(
+					row.work_item_template, flt(row.qty), self.type_subcontractor
+				)
+			for fieldname, rows in propagated.items():
+				for resource in rows:
+					self.append(fieldname, {**resource, "contract_row": row.name})
+			row.resources_propagated = 1
+			carried.add(key)
+
+	def rescale_propagated_resources(self):
+		"""Server-side twin of subcontractor_contract.js propagate_resources'
+		rescale branch (2026-09-12), so a qty correction made through the API
+		rescales the line's resources exactly as the form does. Only rows the
+		line owns and that are still auto_propagated move - a hand-edited or
+		hand-added row is left as it is. In desk the client has already
+		rescaled by the time this runs, so it recomputes the same values."""
+		if self._figures_are_frozen():
+			return
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		before_qty = {row.name: flt(row.qty) for row in before.contracted_items}
+		for row in self.contracted_items:
+			if not row.resources_propagated or row.name not in before_qty:
+				continue
+			if abs(flt(row.qty) - before_qty[row.name]) <= TOLERANCE:
+				continue
+			if row.work_item:
+				fresh = allocation._propagated_resource_rows(
+					allocation.get_work_item(row.work_item), flt(row.qty), self.type_subcontractor, self.name
+				)
+			elif row.work_item_template:
+				fresh = allocation._template_resource_rows(
+					row.work_item_template, flt(row.qty), self.type_subcontractor
+				)
+			else:
+				continue
+			owned = self._owned_resource_rows(row)
+			for fieldname, (_doctype, link_fieldname) in self._resource_tables().items():
+				match_field = link_fieldname if row.work_item else "item"
+				new_by_key = {r.get(match_field): r for r in fresh.get(fieldname) or []}
+				for owner_field, resource in owned:
+					if owner_field != fieldname or not resource.auto_propagated:
+						continue
+					new_row = new_by_key.get(resource.get(match_field))
+					if not new_row:
+						continue
+					resource.qty = new_row["qty"]
+					if row.work_item:
+						resource.available_qty = new_row.get("available_qty")
+					else:
+						resource.amount = flt(resource.qty) * flt(resource.rate)
+
+	def validate_component_qty(self):
+		"""2026-10-20: a cost component's qty may be lowered by hand, never
+		raised above what its line's qty takes of it - qty_per_unit (Tender
+		row, or the template's row for that item) x the Contracted Items
+		qty. Extra rows have no per-unit share to hold them to."""
+		if self._figures_are_frozen():
+			return
+		for row in self.contracted_items:
+			for fieldname, resource in self._owned_resource_rows(row):
+				line_qty = self._line_qty_for(row, resource)
+				max_qty = component_max_qty(fieldname, resource, line_qty)
+				if max_qty is not None and flt(resource.qty) > max_qty + TOLERANCE:
+					frappe.throw(
+						_("{0} row {1}: the qty of {2} ({3}) exceeds what {4} x {5} takes of it ({6}). "
+						  "A component's qty can be lowered, but never raised above its work item's.").format(
+							_(self.meta.get_label(fieldname)), resource.idx,
+							frappe.bold(resource.resource_item or resource.item), flt(resource.qty),
+							frappe.bold(row.description or row.work_item or row.work_item_template),
+							flt(line_qty), flt(max_qty),
+						)
+					)
+
+	def _line_qty_for(self, row, resource):
+		"""The line qty a resource row is held to: its own row's, or - for an
+		unowned row on a line carried twice - the line's total."""
+		if resource.contract_row:
+			return flt(row.qty)
+		return sum(flt(r.qty) for r in self.contracted_items if line_key(r) == line_key(row))
+
+	def stamp_contract_rows(self):
+		"""2026-10-20: a resource row added without an owner (the API, Data
+		Import, a hand-added row) belongs to its line's Contracted Items row
+		when the line has only one - so pricing and rescaling never have to
+		guess. Rows on a line carried twice are left to the line-key fallback."""
+		if self._figures_are_frozen():
+			return
+		rows_by_line = {}
+		for row in self.contracted_items:
+			rows_by_line.setdefault(line_key(row), []).append(row)
+		for fieldname in self._resource_tables():
+			for resource in self.get(fieldname):
+				owners = rows_by_line.get(line_key(resource)) or []
+				if not resource.contract_row and len(owners) == 1:
+					resource.contract_row = owners[0].name
+
+	def validate_tender_lines_carry_resources(self):
+		"""2026-10-20 (partial contracts): a contract claims exactly the
+		Tender lines it carries, so a Tender line with none of them claims
+		nothing - pick at least one. Draft only (old contracts are left as
+		they are)."""
+		if self._figures_are_frozen():
+			return
+		carried = {
+			row.work_item
+			for fieldname, (_doctype, link_fieldname) in self._resource_tables().items()
+			for row in self.get(fieldname)
+			if row.work_item and row.get(link_fieldname)
+		}
+		for row in self.contracted_items:
+			if row.work_item and row.work_item not in carried:
+				frappe.throw(
+					_("Row {0}: {1} carries none of its Tender lines. Pick at least one Material / Labor / "
+					  "Subcontract / Equipment line for it (Select Work Item), or remove the row.").format(
+						row.idx, frappe.bold(row.description or row.work_item)
+					)
+				)
 
 	def _validate_resource_rows(self, fieldname, doctype, link_fieldname, lock=False):
 		"""Shared by the three tab validators above: every row's resource
@@ -334,13 +673,56 @@ class SubcontractorContract(Document):
 			return
 
 		if lock:
-			allocation.lock_work_items([row.work_item for row in rows])
+			allocation.lock_work_items([row.work_item for row in rows if row.work_item and row.get(link_fieldname)])
 
 		project_tenders = self.project_tender_names()
+		tender_lines = {row.work_item for row in self.contracted_items if row.work_item}
 		own = {}
 		for row in rows:
+			if bool(row.work_item) == bool(row.work_item_template):
+				frappe.throw(
+					_("{0} row {1}: set exactly one of Work Item or Work Item Template.").format(
+						_(self.meta.get_label(fieldname)), row.idx
+					)
+				)
+
+			if row.get(link_fieldname):
+				row.source = "Tender"
+			elif row.work_item_template and row.auto_propagated:
+				row.source = "Template"
+			else:
+				row.source = "Extra"
+
+			if row.source != "Tender":
+				# FR-08/09: template-sourced and extra rows carry a free Item
+				# under the tab's Item rule, and draw on no Tender quantity.
+				if not row.item:
+					frappe.throw(
+						_("{0} row {1}: Item is required.").format(_(self.meta.get_label(fieldname)), row.idx)
+					)
+				# Rows copied from the template are the template's own data (its
+				# item picker rule is client-side only, so it can hold items this
+				# rule rejects). Only hand-added Extra rows are held to the rule.
+				if row.source != "Template":
+					allocation.validate_resource_item(fieldname, row.item, row.idx)
+				if row.work_item and row.work_item not in tender_lines:
+					frappe.throw(
+						_("{0} row {1}: work item {2} is not a Tender line on Contracted Items.").format(
+							_(self.meta.get_label(fieldname)), row.idx, frappe.bold(row.work_item)
+						)
+					)
+				item_name, stock_uom = frappe.db.get_value("Item", row.item, ["item_name", "stock_uom"])
+				row.resource_item = item_name or row.item
+				row.uom = stock_uom
+				row.available_qty = 0
+				continue
+
 			if not row.work_item:
-				frappe.throw(_("Row {0}: Work Item is required.").format(row.idx))
+				frappe.throw(
+					_("{0} row {1}: a Tender resource row needs its Tender Work Item.").format(
+						_(self.meta.get_label(fieldname)), row.idx
+					)
+				)
 
 			work_item_row = allocation.get_work_item(row.work_item)
 			if work_item_row.parent not in project_tenders:
@@ -359,6 +741,8 @@ class SubcontractorContract(Document):
 
 			resource_row = allocation.get_resource_row(doctype, resource_value)
 			row.resource_item = resource_row.item
+			# One Item column labels every row in the grid, whatever its source.
+			row.item = resource_row.item
 
 			if not allocation.resource_belongs_to_work_item(resource_row, work_item_row):
 				frappe.throw(
@@ -397,6 +781,7 @@ class SubcontractorContract(Document):
 		live = {
 			"material_item": {r.name for r in self.contract_material_items},
 			"labor_item": {r.name for r in self.contract_labor_items},
+			"subcontract_item": {r.name for r in self.contract_subcontract_items},
 			"equipment_item": {r.name for r in self.contract_equipment_items},
 		}
 		for row in self.payment_conditions:
@@ -419,10 +804,23 @@ class SubcontractorContract(Document):
 		tables = {
 			"material_item": {r.name: r for r in self.contract_material_items},
 			"labor_item": {r.name: r for r in self.contract_labor_items},
+			"subcontract_item": {r.name: r for r in self.contract_subcontract_items},
 			"equipment_item": {r.name: r for r in self.contract_equipment_items},
 		}
 
+		template_lines = {r.work_item_template for r in self.contracted_items if r.work_item_template}
 		for row in self.payment_conditions:
+			if row.work_item and row.work_item_template:
+				frappe.throw(
+					_("Payment Conditions row {0}: set Work Item or Work Item Template, not both.").format(row.idx)
+				)
+			if row.work_item_template and row.work_item_template not in template_lines:
+				frappe.throw(
+					_("Payment Conditions row {0}: Work Item Template {1} is not a line on this contract.").format(
+						row.idx, frappe.bold(row.work_item_template)
+					)
+				)
+
 			if row.category:
 				allowed_types = CATEGORY_TYPE_GATE.get(row.category, ())
 				if self.type_subcontractor not in allowed_types:
@@ -431,11 +829,13 @@ class SubcontractorContract(Document):
 						  ).format(row.idx, row.category, self.type_subcontractor)
 					)
 
-			set_fields = [f for f in ("material_item", "labor_item", "equipment_item") if row.get(f)]
+			set_fields = [f for f in _RESOURCE_FIELD_BY_CATEGORY_REVERSE if row.get(f)]
 			if not set_fields:
 				continue
 			if len(set_fields) > 1:
-				frappe.throw(_("Row {0}: set only one of Material/Labor/Equipment Item.").format(row.idx))
+				frappe.throw(
+					_("Row {0}: set only one of Material/Labor/Subcontract/Equipment Item.").format(row.idx)
+				)
 
 			fieldname = set_fields[0]
 			expected_category = _RESOURCE_FIELD_BY_CATEGORY_REVERSE[fieldname]
@@ -447,7 +847,7 @@ class SubcontractorContract(Document):
 				)
 
 			resource_row = tables[fieldname].get(row.get(fieldname))
-			if resource_row and row.work_item and resource_row.work_item != row.work_item:
+			if resource_row and line_key(row) and line_key(resource_row) != line_key(row):
 				frappe.throw(
 					_("Row {0}: the selected resource belongs to a different work item than this "
 					  "row's Work Item.").format(row.idx)
@@ -458,19 +858,7 @@ class SubcontractorContract(Document):
 		contract-wide default (rows with no Work Item) and, independently,
 		each work item's override set (rows naming that Work Item).
 		"""
-		groups = {}
-		for row in self.payment_conditions:
-			groups.setdefault(row.work_item, []).append(row)
-
-		for work_item, rows in groups.items():
-			total = sum(flt(row.percent) for row in rows)
-			if abs(total - 100.0) > TOLERANCE:
-				label = _("work item {0}").format(work_item) if work_item else _("the contract-wide default")
-				frappe.throw(
-					_("Payment Conditions for {0} must sum to 100% - found {1}%.").format(
-						frappe.bold(label), flt(total)
-					)
-				)
+		allocation.validate_condition_groups(self.payment_conditions)
 
 	# -- material conflict (FR-14 / FR-15) ---------------------------------
 
@@ -495,9 +883,17 @@ class SubcontractorContract(Document):
 				row.material_conflict_override = 0
 			return
 
+		# 2026-10-20 (partial contracts): only a line that actually carries
+		# material rows makes the subcontractor the supplier of that material.
+		carries_material = {r.work_item for r in self.contract_material_items if r.work_item}
+
 		# One work item can appear on several rows; look it up once.
 		by_work_item = {}
 		for row in self.contracted_items:
+			if not row.work_item:
+				continue  # template line: no Tender work item to conflict with (FR-09)
+			if row.work_item not in carries_material:
+				continue
 			if row.work_item not in by_work_item:
 				by_work_item[row.work_item] = find_material_conflicts(row.work_item)
 
@@ -512,7 +908,7 @@ class SubcontractorContract(Document):
 
 		for row in self.contracted_items:
 			conflicts = [
-				c for c in self.existing_material_requests if c.work_item == row.work_item
+				c for c in self.existing_material_requests if row.work_item and c.work_item == row.work_item
 			]
 			if not conflicts:
 				row.material_conflict_override = 0
@@ -585,6 +981,326 @@ class SubcontractorContract(Document):
 		for row in self.additional_costs:
 			if not row.cost_center:
 				row.cost_center = project_cost_center
+
+	# -- pricing mode / price ceiling (2026-09-27 BRD) ----------------------
+
+	def _figures_are_frozen(self):
+		"""Same guard enforce_frozen_figures uses: once a document has left
+		Draft, contracted_items/resource rows are guaranteed unchanged (that
+		method throws earlier in validate() if they aren't) - so pricing
+		mode/ceiling logic below has nothing new to compute or check on a
+		save that starts from a non-Draft state. This is what keeps the
+		price ceiling from retroactively validating the 10 already-Approved
+        contracts' historical pricing (BRD Non-Goal)."""
+		before = self.get_doc_before_save()
+		return bool(before) and (before.workflow_state or "") not in EDITABLE_STATES
+
+	def compute_component_pricing(self):
+		"""How a line's price and its cost components relate (2026-10-20).
+
+		Components mode (FR-01/02/14): unit_price is a pure rollup of the
+		qty x rate of the resource rows the line owns.
+
+		Total mode: unit_price is entered, and the line's components are a
+		breakdown of it. Rates still blank are filled by splitting the line
+		amount in the proportions of their Tender (or template) budget -
+		split_component_rates; the proportions themselves are never shown.
+		Rates the user has set are placeholders they may edit, as long as
+		the components still add up to the line amount.
+		"""
+		if self._figures_are_frozen():
+			return
+
+		for row in self.contracted_items:
+			owned = self._owned_resource_rows(row)
+
+			if row.pricing_mode == "Components":
+				component_total = sum(flt(r.qty) * flt(r.rate) for _f, r in owned)
+				# 2026-10-20: a new Tender line now auto-takes its lines, unpriced -
+				# a zero total is the same "nothing priced" as no rows at all.
+				if not owned or component_total <= TOLERANCE:
+					frappe.throw(
+						_("Row {0}: {1} is priced by Components but has no Material/Labor/"
+						  "Subcontract/Equipment rows. Add priced component rows, or switch this row back "
+						  "to Total pricing.").format(row.idx, frappe.bold(row.description or row.work_item))
+					)
+				row.unit_price = component_total / flt(row.qty) if row.qty else 0.0
+				continue
+
+			# unit_price is only mandatory outside Components mode
+			# (mandatory_depends_on), which Frappe v14 enforces client-side
+			# only - so the API / Data Import get the same rule here.
+			if row.unit_price in (None, ""):
+				frappe.throw(_("Row {0}: Unit Price is required in Total pricing mode.").format(row.idx))
+			if not owned:
+				continue
+
+			line_amount = flt(row.qty) * flt(row.unit_price)
+			if all(not flt(r.rate) for _f, r in owned):
+				rates = split_component_rates(
+					[_reference_input(fieldname, r) for fieldname, r in owned], line_amount
+				)
+				for (_f, r), rate in zip(owned, rates):
+					r.rate = rate
+					r.amount = flt(r.qty) * flt(rate)
+				continue
+
+			component_total = sum(flt(r.qty) * flt(r.rate) for _f, r in owned)
+			if abs(component_total - line_amount) > _sum_tolerance(r for _f, r in owned):
+				frappe.throw(
+					_("Row {0}: the cost components of {1} add up to {2}, but the line total is {3}. "
+					  "Adjust the component rates so they add up to the line total.").format(
+						row.idx, frappe.bold(row.description or row.work_item or row.work_item_template),
+						frappe.format_value(component_total, {"fieldtype": "Currency"}),
+						frappe.format_value(line_amount, {"fieldtype": "Currency"}),
+					)
+				)
+
+	def _owned_resource_rows(self, row):
+		"""(table fieldname, resource row) pairs a Contracted Items row owns:
+		those stamped with its name, or - for rows from before contract_row
+		existed - the unstamped ones on the same line."""
+		key = line_key(row)
+		return [
+			(fieldname, resource)
+			for fieldname in self._resource_tables()
+			for resource in self.get(fieldname)
+			if (resource.contract_row == row.name if resource.contract_row else line_key(resource) == key)
+		]
+
+	def validate_price_ceiling(self):
+		"""FR-04/05/06: a Contracted Items row's per-unit price - however it
+		was arrived at (Total or Components mode) - may not exceed its work
+		item's own Tender Direct Cost per unit, without an acknowledged
+		price exception. Never discloses the Tender's actual cost/price
+		figures in the block message (FR-05). Since the 2026-10-18 BRD the
+		ceiling is the same per-type reference as tender_unit_cost - a
+		Labor/Installing/Equipment line is held to its own resource layer
+		(_tender_reference_per_unit), Supply and Install to the whole
+		Direct Cost.
+
+		Skipped once the contract has left Draft (see _figures_are_frozen) -
+		contracted_items are frozen by then, so this would otherwise
+		retroactively flag already-Approved contracts priced before this
+		ceiling existed (BRD Non-Goal).
+		"""
+		if self._figures_are_frozen():
+			return
+
+		for row in self.contracted_items:
+			if not row.work_item:
+				continue  # template line: no Tender ceiling to check (FR-09)
+
+			work_item_row = allocation.get_work_item(row.work_item)
+
+			if not work_item_row.original_quantity:
+				continue
+
+			if self.price_exception_acknowledged:
+				continue
+
+			ceiling = self._tender_reference_per_unit(row, work_item_row)
+			if flt(row.unit_price) <= ceiling + TOLERANCE:
+				# 2026-10-20: a component may be raised above its own Tender
+				# rate as long as the line as a whole stays within the Tender -
+				# the saving elsewhere covers it.
+				continue
+
+			over = self._components_over_tender_rate(row, work_item_row)
+			if over:
+				frappe.throw(
+					_("Row {0}: {1} is priced above its Tender rate, and the price for {2} now exceeds "
+					  "this bench's approved ceiling for that work item. Lower the price, or use "
+					  "'Delegate to Cost Control' for their approval.").format(
+						row.idx, ", ".join(frappe.bold(name) for name in over),
+						frappe.bold(row.description or row.work_item),
+					)
+				)
+			frappe.throw(
+				_("Row {0}: the price for {1} exceeds this bench's approved ceiling for that "
+				  "work item. Use 'Delegate to Cost Control' to proceed anyway.").format(
+					row.idx, frappe.bold(row.description or row.work_item)
+				)
+			)
+
+	def _components_over_tender_rate(self, row, work_item_row):
+		"""Names of the Tender-sourced components a line owns whose rate is
+		above their Tender rate (Supply and Install's carrying the same
+		VAT/additions share as the line ceiling). Names only - never figures."""
+		factor = self._supply_install_factor(work_item_row)
+		tables = self._resource_tables()
+		over = []
+		for fieldname, resource in self._owned_resource_rows(row):
+			doctype, link_fieldname = tables[fieldname]
+			if resource.source != "Tender" or not resource.get(link_fieldname):
+				continue
+			tender_rate = flt(frappe.db.get_value(doctype, resource.get(link_fieldname), "rate_egp"))
+			if tender_rate and flt(resource.rate) > tender_rate * factor + TOLERANCE:
+				over.append(resource.resource_item or resource.item)
+		return over
+
+	# -- Tender reference / out-of-Tender flag (Follows Tender BRD) ---------
+
+	def compute_tender_reference(self):
+		"""FR-15: what the Tender (or, for a template line, the template)
+		expected to pay - permlevel 1, so only Cost Control and above ever
+		receive it. Tender resource rates are read in company currency
+		(rate_egp), the same currency the contract's own rates are in.
+		Frozen once the contract leaves Draft (NFR-02).
+		"""
+		if self._figures_are_frozen():
+			return
+
+		for row in self.contracted_items:
+			if row.work_item:
+				row.tender_unit_cost = self._tender_reference_per_unit(row, allocation.get_work_item(row.work_item))
+			else:
+				row.tender_unit_cost = self._template_reference_per_unit(row.work_item_template)
+
+		template_rates = {}
+		for fieldname, (resource_doctype, link_fieldname) in self._resource_tables().items():
+			template_table = allocation.TEMPLATE_TABLE_BY_CONTRACT_TABLE[fieldname]
+			for row in self.get(fieldname):
+				if row.source == "Tender":
+					row.tender_rate = flt(frappe.db.get_value(resource_doctype, row.get(link_fieldname), "rate_egp"))
+				elif row.source == "Template":
+					key = (row.work_item_template, template_table)
+					if key not in template_rates:
+						template_rates[key] = {
+							r.item: flt(r.rate) for r in frappe.get_all(
+								allocation.TEMPLATE_CHILD_DOCTYPE[template_table],
+								filters={"parent": row.work_item_template, "parenttype": TEMPLATE_DOCTYPE},
+								fields=["item", "rate"],
+							)
+						}
+					row.tender_rate = template_rates[key].get(row.item)
+				else:
+					row.tender_rate = None
+
+	def compute_out_of_tender_scope(self):
+		"""FR-10/11: a line or resource row is out of the original Tender's
+		scope (shown red, forces Cost Control's confirmation and CEO
+		approval) when the contract has a Project Tender and:
+		  (a) the line is a template line;
+		  (b) a Tender line is priced above its Tender unit cost (only
+		      saveable after 'Delegate to Cost Control');
+		  (c) a resource row did not come from the Tender (template / extra);
+		  (d) a Tender resource row's rate is above the Tender's own rate.
+		A project with no Tender has nothing to exceed - every flag is 0.
+		Frozen once the contract leaves Draft (NFR-02).
+		"""
+		if self._figures_are_frozen():
+			return
+
+		has_tender = bool(self.project_tenders)
+		any_out = False
+
+		for row in self.contracted_items:
+			out = has_tender and (
+				not row.work_item
+				or (flt(row.tender_unit_cost) > 0 and flt(row.unit_price) > flt(row.tender_unit_cost) + TOLERANCE)
+			)
+			row.out_of_tender_scope = 1 if out else 0
+			any_out = any_out or out
+
+		for fieldname in self._resource_tables():
+			for row in self.get(fieldname):
+				out = has_tender and (
+					row.source != "Tender"
+					or (row.tender_rate is not None and flt(row.tender_rate) > 0
+						and flt(row.rate) > flt(row.tender_rate) + TOLERANCE)
+				)
+				row.out_of_tender_scope = 1 if out else 0
+				any_out = any_out or out
+
+		self.has_out_of_tender_items = 1 if any_out else 0
+
+	# 2026-10-18 FR-21: what one unit of a line was budgeted at, for the part
+	# of it this contract type actually buys - Supply and Install the whole
+	# work item, every other type the sum of its own resource layers (raw
+	# direct cost, without the row's VAT/additions - user decision).
+	_REFERENCE_BOQ_FIELDS = {
+		SUPPLY_WORKERS: ("labor_cost",),
+		INSTALL_ONLY: ("labor_cost", "subcontract_cost"),
+		EQUIPMENT: ("equipment_cost",),
+	}
+
+	def _tender_reference_per_unit(self, row, work_item_row):
+		"""Tender unit cost / price ceiling for a Tender line.
+
+		2026-10-20 (partial contracts): the budget of the lines this contract
+		line actually carries - per unit, sum of rate (company currency) x
+		qty_per_unit over its Tender-sourced resource rows - so a contract for
+		subcontract line A alone is held to A's budget, not the whole layer.
+		Supply and Install adds the BOQ row's VAT/additions share in the same
+		proportion. With no carried rows it falls back to the whole layer(s).
+		"""
+		quantity = flt(work_item_row.original_quantity)
+		if not quantity:
+			return 0.0
+
+		carried = 0.0
+		has_carried = False
+		for fieldname, (doctype, link_fieldname) in self._resource_tables().items():
+			for resource in self.get(fieldname):
+				if not resource.get(link_fieldname) or resource.work_item != row.work_item:
+					continue
+				if resource.contract_row and resource.contract_row != row.name:
+					continue
+				rate_egp, ratio = frappe.db.get_value(
+					doctype, resource.get(link_fieldname), ["rate_egp", "qty_per_unit"]
+				) or (0, 0)
+				carried += flt(rate_egp) * flt(ratio)
+				has_carried = True
+
+		if has_carried:
+			return carried * self._supply_install_factor(work_item_row)
+
+		fieldnames = self._REFERENCE_BOQ_FIELDS.get(self.type_subcontractor, ("boq_direct_cost",))
+		return sum(flt(work_item_row.get(f)) for f in fieldnames) / quantity
+
+	def _supply_install_factor(self, work_item_row):
+		"""Supply and Install is held to the BOQ row's whole Direct Cost, VAT
+		and additions included: its raw resource rates scale by
+		boq_direct_cost / raw direct cost. 1 for every other type."""
+		if self.type_subcontractor != SUPPLY_AND_INSTALL:
+			return 1.0
+		raw_direct = sum(flt(work_item_row.get(f)) for f in (
+			"material_cost", "labor_cost", "subcontract_cost", "equipment_cost"
+		))
+		return flt(work_item_row.boq_direct_cost) / raw_direct if raw_direct else 1.0
+
+	def _template_reference_per_unit(self, work_item_template):
+		"""Tender unit cost for a template line: the template's per-unit cost
+		of the resources this type buys (its whole total_cost_per_unit for
+		Supply and Install)."""
+		resources = allocation.type_resources(self.type_subcontractor)
+		if not resources:
+			return flt(frappe.db.get_value(TEMPLATE_DOCTYPE, work_item_template, "total_cost_per_unit"))
+		doctypes = {doctype for doctype, _link in resources}
+		total = 0.0
+		for contract_table, (doctype, _link) in self._resource_tables().items():
+			if doctype not in doctypes:
+				continue
+			template_table = allocation.TEMPLATE_TABLE_BY_CONTRACT_TABLE[contract_table]
+			total += sum(
+				flt(r.qty_per_unit) * flt(r.rate)
+				for r in frappe.get_all(
+					allocation.TEMPLATE_CHILD_DOCTYPE[template_table],
+					filters={"parent": work_item_template, "parenttype": TEMPLATE_DOCTYPE, "parentfield": template_table},
+					fields=["qty_per_unit", "rate"],
+				)
+			)
+		return total
+
+	@staticmethod
+	def _resource_tables():
+		return {
+			"contract_material_items": (MATERIAL_DOCTYPE, "material_item"),
+			"contract_labor_items": (LABOR_DOCTYPE, "labor_item"),
+			"contract_subcontract_items": (SUBCONTRACT_DOCTYPE, "subcontract_item"),
+			"contract_equipment_items": (EQUIPMENT_DOCTYPE, "equipment_item"),
+		}
 
 	# -- totals ------------------------------------------------------------
 
@@ -699,15 +1415,54 @@ class SubcontractorContract(Document):
 		)
 
 	def set_ceo_approval_flag(self):
-		"""Precompute the workflow's CEO-threshold condition.
+		"""Precompute the workflow's CEO-threshold condition (2026-09-27 BRD,
+		FR-07). Replaces the old whole-contract Contracting Settings.
+		ceo_approval_value_threshold check entirely - that field is left in
+		place but no longer read here.
 
 		Frappe evaluates workflow conditions through safe_eval with only
-		frappe.db.get_value / get_list exposed, so the threshold can't be
-		read from Contracting Settings there. FR-20 freezes grand_total
-		mid-chain, so this flag can't go stale once set.
+		frappe.db.get_value / get_list exposed, so this has to be
+		precomputed here rather than read live from the workflow condition.
+		FR-20 freezes contracted_items mid-chain, so this flag can't go
+		stale once set - guarded the same way as validate_price_ceiling,
+		since (b)'s cross-contract lookup means a naive unconditional
+		recompute could otherwise flip an already-Approved contract's flag
+		based on some *other*, later contract's approval.
+
+		Requires CEO approval when either:
+		  (a) any Contracted Items row(s) for a single work_item - summed
+		      together when more than one row shares that work_item, same
+		      aggregation validate_allocation already does - total at least
+		      CEO_APPROVAL_WORK_ITEM_THRESHOLD, and that work_item has never
+		      appeared on any *other* Approved Subcontractor Contract; or
+		  (b) a price exception was acknowledged via 'Delegate to Cost
+		      Control' (validate_price_ceiling).
 		"""
-		threshold = flt(frappe.db.get_single_value("Contracting Settings", "ceo_approval_value_threshold"))
-		self.requires_ceo_approval = 1 if threshold and flt(self.grand_total) >= threshold else 0
+		if self._figures_are_frozen():
+			return
+
+		by_line = {}
+		for row in self.contracted_items:
+			key = line_key(row)
+			by_line[key] = by_line.get(key, 0.0) + flt(row.amount)
+
+		def previously_approved(key):
+			# Follows Tender BRD OQ-4: a template line is a "work item" for
+			# this rule too, tracked by its own template.
+			if key[0] == "tender":
+				return allocation.work_item_previously_approved(key[1], exclude_contract=self.name)
+			return allocation.template_previously_approved(key[1], exclude_contract=self.name)
+
+		over_threshold_and_new = any(
+			amount >= CEO_APPROVAL_WORK_ITEM_THRESHOLD and not previously_approved(key)
+			for key, amount in by_line.items()
+			if key
+		)
+
+		# (c) Follows Tender BRD FR-13: anything outside the original Tender.
+		self.requires_ceo_approval = 1 if (
+			over_threshold_and_new or self.price_exception_acknowledged or self.has_out_of_tender_items
+		) else 0
 
 	def set_total_advance_paid(self):
 		"""FR-06/FR-09: recomputed from submitted Payment Entry Reference
@@ -804,6 +1559,25 @@ def get_project_tenders_for_project(project, department=None):
 
 
 @frappe.whitelist()
+def get_work_item_templates(txt=None):
+	"""Rows for the "Select Work Item Template" dialog (FR-05). Every
+	template, not filtered by contract - FR-06's one-row-per-template rule is
+	enforced on save. Deliberately no cost figures: the dialog is open to
+	Contracts Engineers, who don't see Tender/template cost (NFR-03).
+	"""
+	frappe.has_permission(TEMPLATE_DOCTYPE, "select", throw=True)
+	filters = None
+	if txt:
+		filters = {"template_name": ["like", f"%{txt}%"]}
+	return frappe.get_all(
+		TEMPLATE_DOCTYPE,
+		filters=filters,
+		fields=["name", "template_name", "description", "uom"],
+		order_by="template_name",
+	)
+
+
+@frappe.whitelist()
 def close_contract(name):
 	"""FR-11: marks a contract Closed, releasing any never-invoiced
 	remaining quantity back to general availability (allocation.
@@ -896,9 +1670,11 @@ def get_unallocated_boq_items(tenders, contract_type, subcontractor_contract=Non
 
 	result = []
 	for boq_row in boq_rows:
-		available = allocation.get_row_availability(
-			contract_type, boq_row.name, exclude_contract=subcontractor_contract
-		)
+		# 2026-10-20 (partial contracts): every line the type could claim,
+		# with what's left on each - the dialog lets the engineer tick which.
+		work_item_row = allocation.get_work_item(boq_row.name)
+		lines = allocation.get_line_availability(contract_type, work_item_row, subcontractor_contract)
+		available = max((line.available_units for line in lines), default=0.0)
 		if available > TOLERANCE:
 			result.append({
 				"work_item": boq_row.name,
@@ -914,6 +1690,123 @@ def get_unallocated_boq_items(tenders, contract_type, subcontractor_contract=Non
 				# above already reads.
 				"contracted": boq_row.original_quantity - available,
 				"qty": available,
+				"lines": lines,
 			})
 
 	return result
+
+
+# -- Total-mode component split (2026-10-20) --------------------------------
+
+_TENDER_LINK_BY_TABLE = {
+	"contract_material_items": (MATERIAL_DOCTYPE, "material_item"),
+	"contract_labor_items": (LABOR_DOCTYPE, "labor_item"),
+	"contract_subcontract_items": (SUBCONTRACT_DOCTYPE, "subcontract_item"),
+	"contract_equipment_items": (EQUIPMENT_DOCTYPE, "equipment_item"),
+}
+
+
+def _reference_input(fieldname, resource):
+	"""What split_component_rates needs to know about one resource row."""
+	return {
+		"table": fieldname,
+		"link": resource.get(_TENDER_LINK_BY_TABLE[fieldname][1]),
+		"source": resource.source,
+		"work_item_template": resource.work_item_template,
+		"item": resource.item,
+		"qty": resource.qty,
+	}
+
+
+def _reference_rate(entry, template_cache):
+	"""The budgeted rate of one resource row: its Tender row's rate (company
+	currency) or its template's rate for that item. 0 for an extra row."""
+	if entry.get("source") == "Tender" and entry.get("link"):
+		doctype = _TENDER_LINK_BY_TABLE[entry["table"]][0]
+		return flt(frappe.db.get_value(doctype, entry["link"], "rate_egp"))
+	if entry.get("source") == "Template" and entry.get("work_item_template"):
+		template_table = allocation.TEMPLATE_TABLE_BY_CONTRACT_TABLE[entry["table"]]
+		key = (entry["work_item_template"], template_table)
+		if key not in template_cache:
+			template_cache[key] = {
+				r.item: flt(r.rate) for r in frappe.get_all(
+					allocation.TEMPLATE_CHILD_DOCTYPE[template_table],
+					filters={"parent": entry["work_item_template"], "parenttype": TEMPLATE_DOCTYPE},
+					fields=["item", "rate"],
+				)
+			}
+		return flt(template_cache[key].get(entry.get("item")))
+	return 0.0
+
+
+def split_component_rates(entries, line_amount):
+	"""Split a Total-mode line's amount over its cost components in the
+	proportions of their budget (reference rate x qty) and return each
+	component's rate. With no budget to go by, the amount is split evenly."""
+	template_cache = {}
+	weights = [_reference_rate(e, template_cache) * flt(e.get("qty")) for e in entries]
+	total_weight = sum(weights)
+	if total_weight <= TOLERANCE:
+		priced = [e for e in entries if flt(e.get("qty"))]
+		weights = [1.0 if flt(e.get("qty")) else 0.0 for e in entries]
+		total_weight = len(priced)
+	if not total_weight:
+		return [0.0 for _e in entries]
+	return [
+		flt(line_amount) * weight / total_weight / flt(e.get("qty")) if flt(e.get("qty")) else 0.0
+		for e, weight in zip(entries, weights)
+	]
+
+
+def _sum_tolerance(resources):
+	"""How far the components may drift from the line total on rounding
+	alone: half a unit of currency precision on each component's rate."""
+	precision = cint(frappe.db.get_default("currency_precision")) or 2
+	return 0.5 * 10 ** -precision * (sum(abs(flt(r.qty)) for r in resources) + 1)
+
+
+@frappe.whitelist()
+def get_component_rates(rows, line_amount):
+	"""Client side of the Total-mode split: the rates only, never the Tender
+	figures or proportions behind them."""
+	frappe.has_permission("Subcontractor Contract", "write", throw=True)
+	entries = frappe.parse_json(rows) or []
+	for entry in entries:
+		if entry.get("table") not in _TENDER_LINK_BY_TABLE:
+			frappe.throw(_("Unknown resource table {0}").format(entry.get("table")))
+	return split_component_rates(entries, line_amount)
+
+
+def _template_ratio(work_item_template, fieldname, item):
+	template_table = allocation.TEMPLATE_TABLE_BY_CONTRACT_TABLE[fieldname]
+	return frappe.db.get_value(
+		allocation.TEMPLATE_CHILD_DOCTYPE[template_table],
+		{"parent": work_item_template, "parenttype": TEMPLATE_DOCTYPE, "parentfield": template_table, "item": item},
+		"qty_per_unit",
+	)
+
+
+def component_max_qty(fieldname, resource, line_qty):
+	"""Most of a cost component a line of line_qty units takes: its
+	qty_per_unit (from the Tender row it links, or its template's row for
+	the same item) x line_qty. None for an extra row with no such share."""
+	doctype, link_fieldname = _TENDER_LINK_BY_TABLE[fieldname]
+	if resource.get(link_fieldname):
+		ratio = frappe.db.get_value(doctype, resource.get(link_fieldname), "qty_per_unit")
+	elif resource.get("work_item_template") and resource.get("item"):
+		ratio = _template_ratio(resource.get("work_item_template"), fieldname, resource.get("item"))
+	else:
+		return None
+	if ratio is None:
+		return None
+	return flt(ratio) * flt(line_qty)
+
+
+@frappe.whitelist()
+def get_component_max_qty(table, row, line_qty):
+	"""Client side of validate_component_qty, for an immediate check while
+	the qty is being typed."""
+	frappe.has_permission("Subcontractor Contract", "write", throw=True)
+	if table not in _TENDER_LINK_BY_TABLE:
+		frappe.throw(_("Unknown resource table {0}").format(table))
+	return component_max_qty(table, frappe._dict(frappe.parse_json(row)), line_qty)

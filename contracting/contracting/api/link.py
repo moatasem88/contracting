@@ -86,6 +86,20 @@ def child_row_query(doctype, txt, searchfield, start, page_len, filters, as_dict
 	fields = _display_fields(meta, searchfield)
 
 	filters = _as_filter_list(filters)
+
+	# 'select' on the parent is enough to pick a row (2026-10-13: the
+	# contracts department holds select-only on Tender, so they can pick
+	# work items without opening a Tender and seeing its costs). core's
+	# get_list below still demands *read* on parent_doctype, so for a
+	# select-only user it runs without that check - safe only because
+	# permission was already decided above, the parenttype filter confines
+	# rows to those parents, the returned columns are textual
+	# (_display_fields), and filtering on numeric (cost/qty) fields is refused
+	# so they can't be probed by narrowing a filter either.
+	select_only = not any(frappe.has_permission(pt, "read") for pt in parenttypes)
+	if select_only:
+		_reject_numeric_filters(meta, filters)
+
 	filters.append(["parenttype", "in", parenttypes])
 
 	or_filters = [[fieldname, "like", f"%{txt}%"] for fieldname in fields] if txt else []
@@ -100,6 +114,7 @@ def child_row_query(doctype, txt, searchfield, start, page_len, filters, as_dict
 		# Any entry in parenttypes works - they are all readable, and the
 		# filter above confines the rows to that same set.
 		parent_doctype=parenttypes[0],
+		ignore_permissions=select_only,
 		limit_start=start,
 		limit_page_length=page_len,
 		order_by="parent asc, idx asc",
@@ -154,6 +169,17 @@ def _display_fields(meta, searchfield) -> list[str]:
 		fields.append(df.fieldname)
 
 	return fields
+
+
+NUMERIC_FIELDTYPES = ("Currency", "Float", "Int", "Percent")
+
+
+def _reject_numeric_filters(meta, filters):
+	for condition in filters:
+		fieldname = condition[1] if len(condition) > 3 else condition[0]
+		df = meta.get_field(fieldname)
+		if df and df.fieldtype in NUMERIC_FIELDTYPES:
+			frappe.throw(_("Not permitted to filter on {0}.").format(frappe.bold(fieldname)), frappe.PermissionError)
 
 
 def _as_filter_list(filters) -> list:

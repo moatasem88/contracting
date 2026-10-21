@@ -1,4 +1,4 @@
-const RESOURCE_TABLES = ['material_items', 'labor_items', 'equipment_items'];
+const RESOURCE_TABLES = ['material_items', 'labor_items', 'subcontract_items', 'equipment_items'];
 
 // FR-T-01: cascade-delete. Removing a BOQ row orphans any Material/Labor/
 // Equipment rows that pointed at it - drop them from the grids immediately
@@ -20,6 +20,41 @@ function prune_orphaned_boq_resource_rows(frm) {
     });
 }
 
+// Keep in sync with TENDER_EXPORT_ROLES in tender.py (server check is the control).
+const EXPORT_ROLES = [
+    'Tender Manager', 'Tender Engineer Civil', 'Tender Engineer Electrical',
+    'Tender Engineer Mechanical', 'Cost Control Engineer', 'cost control manager',
+    'Planning and Cost Control Director', 'Planning Manager',
+    'Business Development Manager', 'Business Development Director',
+    'Company CEO', 'System Manager',
+];
+
+function show_export_dialog(frm) {
+    const dialog = new frappe.ui.Dialog({
+        title: __('Export Tender to Excel'),
+        fields: [
+            {
+                fieldname: 'scope', fieldtype: 'Select', label: __('Export'), reqd: 1,
+                options: ['Whole Tender', 'BOQ Items', 'Material', 'Labor', 'Subcontract', 'Equipment'].join('\n'),
+                default: 'Whole Tender',
+            },
+            {
+                fieldname: 'note', fieldtype: 'HTML',
+                options: `<p class="text-muted">${__('The export uses the last saved version.')}</p>`,
+            },
+        ],
+        primary_action_label: __('Download'),
+        primary_action(values) {
+            open_url_post(
+                '/api/method/contracting.contracting.doctype.tender.tender.export_tender_xlsx',
+                {tender: frm.doc.name, scope: values.scope}
+            );
+            dialog.hide();
+        },
+    });
+    dialog.show();
+}
+
 frappe.ui.form.on('Tender', {
     setup(frm) {
         set_resource_queries(frm);
@@ -31,6 +66,10 @@ frappe.ui.form.on('Tender', {
         set_resource_queries(frm);
         apply_indent_styling(frm);
         recalculate_group_totals(frm);
+
+        if (!frm.doc.__islocal && frappe.user.has_role(EXPORT_ROLES)) {
+            frm.add_custom_button(__('Export to Excel'), () => show_export_dialog(frm));
+        }
 
         if (!frm.doc.__islocal && frm.doc.status === 'Complete') {
             frm.add_custom_button(__('Create Revised Version'), () => {
@@ -84,7 +123,7 @@ frappe.ui.form.on('Tender', {
         frm.fields_dict.boq_items.grid.cannot_add_rows = true;
         frm.fields_dict.boq_items.grid.setup_toolbar();
 
-        [frm.fields_dict.boq_items, frm.fields_dict.material_items, frm.fields_dict.labor_items, frm.fields_dict.equipment_items]
+        [frm.fields_dict.boq_items, ...RESOURCE_TABLES.map(f => frm.fields_dict[f])]
             .forEach(f => make_grid_filter_toggle(f.grid));
     },
     boq_items_add(frm) { recalculate_group_totals(frm); },
@@ -112,7 +151,9 @@ frappe.ui.form.on('Tender BOQ Item', {
     vat_percentage(frm, cdt, cdn) { recalculate_group_totals(frm); },
     other_additions_pct(frm, cdt, cdn) { recalculate_group_totals(frm); },
     fixed_additions(frm, cdt, cdn) { recalculate_group_totals(frm); },
+    fixed_additions_per_unit(frm, cdt, cdn) { recalculate_group_totals(frm); },
     margin_percent(frm, cdt, cdn) { recalculate_group_totals(frm); },
+    client_rate(frm, cdt, cdn) { recalculate_group_totals(frm); },
     display_currency(frm) { refresh_new_field_preview(frm); }
 });
 
@@ -120,6 +161,7 @@ RESOURCE_TABLES.forEach(fieldname => {
     let child_doctype = {
         material_items: 'Tender Material Item',
         labor_items: 'Tender Labor Item',
+        subcontract_items: 'Tender Subcontract Item',
         equipment_items: 'Tender Equipment Item'
     }[fieldname];
 
@@ -170,6 +212,7 @@ function set_resource_queries(frm) {
     // bench's data, Item Group is the real signal.
     frm.set_query('item', 'material_items', () => ({filters: {is_stock_item: 1}}));
     frm.set_query('item', 'labor_items', () => ({filters: {item_group: 'Labor'}}));
+    frm.set_query('item', 'subcontract_items', () => ({filters: {item_group: 'Subcontractors Items'}}));
     frm.set_query('item', 'equipment_items', () => ({filters: {item_group: 'Equipment'}}));
 
     // Currency picker: only currencies listed on this Tender's own
@@ -208,7 +251,7 @@ function refresh_new_field_preview(frm) {
             if (!r.message) return;
             let preview = r.message;
             apply_new_field_previews(frm, 'boq_items', preview.boq_items,
-                ['material_cost', 'labor_cost', 'equipment_cost', 'boq_direct_cost',
+                ['material_cost', 'labor_cost', 'subcontract_cost', 'equipment_cost', 'boq_direct_cost',
                     'boq_safety_factor_amount', 'boq_indirect_cost_amount',
                     'indirect_cost_percent', 'display_amount']);
             RESOURCE_TABLES.forEach(fieldname => {
@@ -364,7 +407,11 @@ function recalculate_group_totals(frm) {
             // Indirect Cost (2026-09-01 BRD).
             let raw_direct = direct_by_work_item[r.idx] || 0;
             let row_vat_amount = raw_direct * (r.vat_percentage || 0) / 100;
-            let row_additions_amount = raw_direct * (r.other_additions_pct || 0) / 100 + (r.fixed_additions || 0);
+            // fixed_additions is a lump sum per row; fixed_additions_per_unit
+            // scales with quantity.
+            let row_additions_amount = raw_direct * (r.other_additions_pct || 0) / 100
+                + (r.fixed_additions || 0)
+                + (r.fixed_additions_per_unit || 0) * (r.original_quantity || 0);
             r.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount;
             r.boq_safety_factor_amount = safety_by_work_item[r.idx] || 0;
             let row_final_cost = r.boq_direct_cost + r.boq_safety_factor_amount;
@@ -377,7 +424,14 @@ function recalculate_group_totals(frm) {
             // reaches what gets sold.
             let effective_total = row_final_cost + r.boq_indirect_cost_amount;
             r.effective_unit_price = r.original_quantity ? effective_total / r.original_quantity : 0;
-            r.sell_rate = r.effective_unit_price * (1 + (r.margin_percent || 0) / 100);
+            if (r.client_rate) {
+                // Mirrors tender.py calculate_row_sell_pricing: the client's
+                // rate pins the sell rate and the margin is derived from it.
+                r.sell_rate = r.client_rate;
+                r.margin_percent = r.effective_unit_price ? (r.client_rate / r.effective_unit_price - 1) * 100 : 0;
+            } else {
+                r.sell_rate = r.effective_unit_price * (1 + (r.margin_percent || 0) / 100);
+            }
             r.sell_amount = r.sell_rate * (r.original_quantity || 0);
 
             total_direct_cost += r.boq_direct_cost;
@@ -452,8 +506,12 @@ function apply_v2_template(frm, row, payload) {
     frappe.model.set_value(row.doctype, row.name, 'vat_percentage', parent.vat_percentage);
     frappe.model.set_value(row.doctype, row.name, 'other_additions_pct', parent.other_additions_pct);
     frappe.model.set_value(row.doctype, row.name, 'fixed_additions', parent.fixed_additions);
+    frappe.model.set_value(row.doctype, row.name, 'fixed_additions_per_unit', parent.fixed_additions_per_unit || 0);
 
-    let table_by_type = {material: 'material_items', labor: 'labor_items', equipment: 'equipment_items'};
+    let table_by_type = {
+        material: 'material_items', labor: 'labor_items',
+        subcontract: 'subcontract_items', equipment: 'equipment_items'
+    };
     payload.children.forEach(child => {
         let fieldname = table_by_type[child.resource_type];
         let new_row = frm.add_child(fieldname, {

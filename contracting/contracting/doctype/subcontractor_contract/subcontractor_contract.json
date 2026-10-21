@@ -17,6 +17,7 @@
   "project",
   "tender_id",
   "project_tenders",
+  "follows_tender",
   "column_break0",
   "contractor_name",
   "company",
@@ -41,14 +42,20 @@
   "grand_total",
   "advance_paid",
   "requires_ceo_approval",
+  "has_out_of_tender_items",
+  "checklist_attachment",
+  "price_exception_acknowledged",
   "attachment_section",
   "attached_contract",
   "workflow_state",
   "is_closed",
+  "effective_date",
   "material_tab",
   "contract_material_items",
   "labor_tab",
   "contract_labor_items",
+  "subcontract_tab",
+  "contract_subcontract_items",
   "equipment_tab",
   "contract_equipment_items"
  ],
@@ -111,6 +118,13 @@
    "read_only": 1
   },
   {
+   "default": "1",
+   "description": "Untick to build lines from Work Item Templates. Locked to 0 when the project has no Tender. Can only change while Contracted Items is empty.",
+   "fieldname": "follows_tender",
+   "fieldtype": "Check",
+   "label": "Follows Tender"
+  },
+  {
    "fieldname": "column_break0",
    "fieldtype": "Column Break",
    "print_hide": 1,
@@ -148,7 +162,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Contract Type",
-   "options": "Installing\nSupplying and installing\nEquipment",
+   "options": "Installing\nLabor\nSupplying and installing\nEquipment",
    "reqd": 1
   },
   {
@@ -271,13 +285,40 @@
   },
   {
    "default": "0",
-   "description": "Set automatically from Contracting Settings' CEO approval threshold. Drives the conditional CEO step in the approval workflow.",
+   "description": "Set automatically by set_ceo_approval_flag(): a work item first reaching 250,000 or more, or an acknowledged price exception. Drives the conditional CEO step in the approval workflow.",
    "fieldname": "requires_ceo_approval",
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Requires CEO Approval",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Set automatically: at least one Contracted Items line or Material/Labor/Equipment row is outside the original Tender (shown red). Forces CEO approval.",
+   "fieldname": "has_out_of_tender_items",
+   "fieldtype": "Check",
+   "label": "Contains Out-of-Tender Items",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.workflow_state==\"Pending Cost Control Engineer Review\" || doc.checklist_attachment",
+   "description": "Only appears - and is only settable - while this contract is Pending Cost Control Engineer Review. Required to pass that step's own Approve transition.",
+   "fieldname": "checklist_attachment",
+   "fieldtype": "Attach",
+   "label": "Cost Control Checklist",
+   "no_copy": 1,
+   "read_only_depends_on": "eval:doc.workflow_state!=\"Pending Cost Control Engineer Review\""
+  },
+  {
+   "default": "0",
+   "description": "Set by the 'Delegate to Cost Control' action when a Contracted Items price exceeds its work item's Tender Direct Cost ceiling. Forces CEO approval later in the chain.",
+   "fieldname": "price_exception_acknowledged",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Price Exception Acknowledged",
+   "no_copy": 1
   },
   {
    "fieldname": "attachment_section",
@@ -310,6 +351,14 @@
    "read_only": 1
   },
   {
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "label": "Effective Date",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Stamped automatically when the document reaches final approval. Cannot be edited."
+  },
+  {
    "depends_on": "eval:doc.type_subcontractor==\"Supplying and installing\"",
    "fieldname": "material_tab",
    "fieldtype": "Tab Break",
@@ -323,17 +372,30 @@
    "options": "Contractor Contract Material Item"
   },
   {
-   "depends_on": "eval:[\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
+   "depends_on": "eval:[\"Labor\",\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
    "fieldname": "labor_tab",
    "fieldtype": "Tab Break",
    "label": "Labor"
   },
   {
-   "description": "Labor rows this Install Only contract carries, drawn from the Tender's Labor tab. A work item may carry more than one labor row.",
+   "description": "Labor rows this contract carries (Labor, Installing and Supply-and-Install contracts), drawn from the Tender's Labor tab. A work item may carry more than one labor row.",
    "fieldname": "contract_labor_items",
    "fieldtype": "Table",
    "label": "Labor Items",
    "options": "Contractor Contract Labor Item"
+  },
+  {
+   "depends_on": "eval:[\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
+   "fieldname": "subcontract_tab",
+   "fieldtype": "Tab Break",
+   "label": "Subcontract"
+  },
+  {
+   "description": "Subcontract rows this contract carries (Installing and Supply-and-Install contracts), drawn from the Tender's Subcontract tab. A work item may carry more than one subcontract row.",
+   "fieldname": "contract_subcontract_items",
+   "fieldtype": "Table",
+   "label": "Subcontract Items",
+   "options": "Contractor Contract Subcontract Item"
   },
   {
    "depends_on": "eval:[\"Equipment\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
@@ -353,7 +415,7 @@
  "is_submittable": 1,
  "links": [],
  "make_attachments_public": 1,
- "modified": "2026-08-17 10:00:00.000000",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Subcontractor Contract",
@@ -411,6 +473,138 @@
    "share": 1,
    "submit": 1,
    "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Contracts Engineer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cost Control Engineer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Projects Director",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Planning and Cost Control Director",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "permlevel": 1,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Cost Control Engineer",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "permlevel": 1,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "cost control manager",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "permlevel": 1,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Planning and Cost Control Director",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "permlevel": 1,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Company CEO",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "permlevel": 1,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Projects Director",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "permlevel": 1,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "System Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 0
   }
  ],
  "show_name_in_global_search": 1,

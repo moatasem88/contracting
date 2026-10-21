@@ -5,7 +5,6 @@ from frappe.model.document import Document
 from frappe.model.rename_doc import rename_doc
 
 from contracting.contracting.api import WORK_ITEM_GROUP, create_work_item_group
-from contracting.contracting.utils.pricing import calculate_effective_price
 
 # Work items share the Item namespace with ~7300 material/equipment
 # items, so the code is prefixed rather than being the bare template
@@ -38,10 +37,15 @@ class WorkItemTemplateV2(Document):
 	def validate_service_items(self):
 		# is_stock_item doesn't reliably distinguish service items from
 		# physical goods in this bench's data - Item Group is the real
-		# signal (dedicated "Labor" / "Equipment" groups). Enforced here
+		# signal (dedicated "Labor" / "Subcontractors Items" / "Equipment"
+		# groups). Enforced here
 		# too, not just via the client-side item picker filter, so Data
 		# Import/API entry can't slip a mismatched item into a line.
-		required_group = {"labor_items": "Labor", "equipment_items": "Equipment"}
+		required_group = {
+			"labor_items": "Labor",
+			"subcontract_items": "Subcontractors Items",
+			"equipment_items": "Equipment",
+		}
 		for fieldname, group in required_group.items():
 			for row in self.get(fieldname):
 				item_group = frappe.db.get_value("Item", row.item, "item_group")
@@ -55,14 +59,30 @@ class WorkItemTemplateV2(Document):
 
 	def calculate_totals(self):
 		base_cost = 0.0
-		for table in (self.material_items, self.labor_items, self.equipment_items):
+		for table in (self.material_items, self.labor_items, self.subcontract_items, self.equipment_items):
 			for row in table:
 				row.amount = (row.qty_per_unit or 0) * (row.rate or 0)
 				base_cost += row.amount
 
-		self.total_cost_per_unit = calculate_effective_price(
-			frappe._dict({"unit_price": base_cost, "additions": self.additions})
-		)
+		# A Fixed Amount addition is either charged per unit of the work
+		# item (scales with Tender BOQ quantity) or once per BOQ row (lump
+		# sum) - only the former belongs in a per-unit cost. per_unit_item
+		# is ignored on Percentage rows. Mirrored in work_item_template_v2.js
+		# and api/work_item_template_v2.py::get_v2_template_rows.
+		additions_pct = fixed_per_unit = fixed_lump_sum = 0.0
+		for a in self.additions:
+			if a.calculation_type == "Percentage":
+				additions_pct += a.value or 0
+			elif a.calculation_type == "Fixed Amount":
+				if a.per_unit_item:
+					fixed_per_unit += a.value or 0
+				else:
+					fixed_lump_sum += a.value or 0
+
+		self.total_work_item_cost = base_cost
+		self.total_additions = base_cost * additions_pct / 100.0 + fixed_per_unit
+		self.total_cost_per_unit = self.total_work_item_cost + self.total_additions
+		self.total_fixed_lump_sum = fixed_lump_sum
 
 	def sync_work_item(self):
 		"""Keep an Item master record in step with this template. That Item
@@ -122,7 +142,10 @@ class WorkItemTemplateV2(Document):
 			"stock_uom": self.uom,
 			"is_stock_item": 0,
 			"description": self.description or self.template_name,
-		}).insert(ignore_permissions=True)
+		})
+		# The template's own Work Item, not a material - see controllers/item.py.
+		item.flags.from_work_item_template = True
+		item.insert(ignore_permissions=True)
 		self.db_set("item", item.name, update_modified=False)
 
 	def update_work_item(self):
@@ -138,6 +161,7 @@ class WorkItemTemplateV2(Document):
 			return
 
 		item.update(changes)
+		item.flags.from_work_item_template = True
 		item.save(ignore_permissions=True)
 
 	def rename_work_item(self, target_code):

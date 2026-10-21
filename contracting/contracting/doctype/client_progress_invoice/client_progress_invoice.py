@@ -1,10 +1,16 @@
+import json
+
 import frappe
 import erpnext
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, today
 
-from contracting.contracting.utils.progress_invoicing import compute_progress_invoice_items
+from contracting.contracting.utils.progress_invoicing import (
+	compute_progress_invoice_items,
+	get_item_progress_context,
+	_get_prior_item_progress,
+)
 
 
 class ClientProgressInvoice(Document):
@@ -168,7 +174,14 @@ def get_sales_order_items(sales_order, client_progress_invoice=None):
 	"""Rows for the Get Items button. Sales Order Item names are opaque
 	hashes, so without this a user has no workable way to fill the table.
 	cumulative_qty_complete is seeded from whatever was last claimed, since
-	the claim is cumulative and can never regress."""
+	the claim is cumulative and can never regress.
+
+	prior_max_qty/previously_invoiced_amount are returned too (via the same
+	_get_prior_item_progress helper compute_progress_invoice_items and
+	get_item_progress_context already share, in place of this function's
+	former duplicate inline SQL) so client_progress_invoice.js's live
+	calculator has everything it needs the instant a row is added, with no
+	extra round trip per row."""
 	rows = []
 	for item in frappe.get_all(
 		"Sales Order Item",
@@ -176,14 +189,8 @@ def get_sales_order_items(sales_order, client_progress_invoice=None):
 		fields=["name", "item_code", "item_name", "description", "qty", "rate"],
 		order_by="idx",
 	):
-		prior = frappe.db.sql(
-			"""
-			select max(item.cumulative_qty_complete)
-			from `tabClient Progress Invoice Item` item
-			inner join `tabClient Progress Invoice` parent_doc on parent_doc.name = item.parent
-			where item.sales_order_item = %s and parent_doc.docstatus = 1 and parent_doc.name != %s
-			""",
-			(item.name, client_progress_invoice or ""),
+		prior_max_qty, prior_invoiced_amount = _get_prior_item_progress(
+			"Client Progress Invoice", "sales_order_item", item.name, client_progress_invoice
 		)
 		rows.append({
 			"sales_order_item": item.name,
@@ -194,9 +201,158 @@ def get_sales_order_items(sales_order, client_progress_invoice=None):
 			"item_name": item.item_name,
 			"qty_allocated": item.qty,
 			"rate": item.rate,
-			"cumulative_qty_complete": (prior and prior[0][0]) or 0,
+			"cumulative_qty_complete": prior_max_qty,
+			"prior_max_qty": prior_max_qty,
+			"previously_invoiced_amount": prior_invoiced_amount,
 		})
 	return rows
+
+
+# Every field compute_progress_invoice_items sets on a Client Progress
+# Invoice Item row - own_doctype != "Contractor Invoice" there, so its
+# description branch never applies here (Client Progress Invoice Item has
+# no description field at all).
+LIVE_SYNC_FIELDS = (
+	"qty_allocated", "rate",
+	"cumulative_qty_complete", "percent_complete", "cumulative_amount",
+	"this_period_qty", "previously_invoiced_amount", "this_period_amount",
+	"retention_amount", "net_amount",
+)
+
+
+@frappe.whitelist()
+def sync_live_edits(client_progress_invoice):
+	"""Background counterpart to a real save, used by client_progress_
+	invoice.js's throttled autosync (mirrors tender.py's sync_live_edits
+	idiom). Persists only LIVE_SYNC_FIELDS via targeted frappe.db.set_value
+	- never doc.save() - specifically so this does NOT fire the Client
+	Progress Invoice on_update hook (project_cost_billing.
+	on_client_progress_invoice_update, which recomputes and saves an entire
+	Project's cost/billing rollup) on every ~2s tick. A real checkpoint
+	frm.save() (see client_progress_invoice.js) still runs that hook
+	normally at natural pause points.
+
+	Every row this function touches is put through the exact same
+	compute_progress_invoice_items() validate()-time formula engine, after
+	first clamping cumulative_qty_complete into
+	[prior_max_qty, qty_allocated] via get_item_progress_context - the same
+	helper the live client-side calculator calls - so that engine's own
+	ceiling/regression frappe.throw()s are structurally unreachable by the
+	time it runs. Rows that can't be safely resolved this tick (no source
+	link yet, forged/foreign link, row not actually part of this document)
+	are silently skipped rather than aborting every other row's sync.
+
+	Deliberately skips validate()'s other side effects
+	(refresh_progress_sales_orders, validate_source's ambiguity throws, any
+	row insert/delete) - those stay on the checkpoint frm.save() path.
+	"""
+	if isinstance(client_progress_invoice, str):
+		client_progress_invoice = json.loads(client_progress_invoice)
+	cpi_name = client_progress_invoice.get("name")
+
+	# Client Progress Invoice has zero Custom DocPerm rows on this site
+	# (unlike Tender) - this resolves cleanly against
+	# client_progress_invoice.json's own permissions block, no shadowing
+	# trap to account for.
+	if not cpi_name or not frappe.has_permission("Client Progress Invoice", "write", doc=cpi_name):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	docstatus = frappe.db.get_value("Client Progress Invoice", cpi_name, "docstatus")
+	if docstatus is None or docstatus != 0:
+		# Not yet inserted (frm.is_new() already guards this client-side;
+		# defense-in-depth only), or submitted/cancelled - a submitted
+		# CPI's item fields are immutable outside amendment. The status
+		# Select (Draft/Measured/Approved) is a display-layer field on top
+		# of docstatus, not what this gate keys off.
+		return {}
+
+	doc = frappe.get_doc(client_progress_invoice)
+
+	if doc.project or doc.sales_order:
+		source_doctype = "Sales Order Item"
+	elif doc.contract_document:
+		source_doctype = "Tender Item"
+	else:
+		return {}  # nothing chosen yet - nothing to sync
+
+	link_field = {"Sales Order Item": "sales_order_item", "Tender Item": "tender_item"}[source_doctype]
+
+	if doc.project:
+		expected_parents = {row.sales_order for row in doc.progress_sales_orders}
+	else:
+		expected_parents = {doc.sales_order or doc.contract_document}
+
+	valid_names = set(frappe.get_all(
+		"Client Progress Invoice Item", filters={"parent": cpi_name}, pluck="name",
+	))
+
+	processed_rows = []
+	for row in doc.items:
+		if row.name not in valid_names:
+			continue  # crafted/unsaved row - never computed, never persisted
+		source_name = row.get(link_field)
+		if not source_name:
+			continue  # no source link yet - stray manually-added row (the
+			          # items grid isn't cannot_add_rows-locked)
+
+		try:
+			ctx = get_item_progress_context(
+				source_name, "Client Progress Invoice", doc_name=cpi_name, source_doctype=source_doctype,
+			)
+		except frappe.ValidationError:
+			continue  # stale/invalid reference - skip, don't abort the tick
+
+		if ctx.get("parent") not in expected_parents:
+			continue  # forged/stale link - row.name is real but points at a
+			          # different document's line; would otherwise trip
+			          # compute_progress_invoice_items's own source_parent throw
+
+		qty_allocated = flt(ctx["qty_allocated"])
+		prior_max_qty = flt(ctx["prior_max_qty"])
+		row.cumulative_qty_complete = min(qty_allocated, max(prior_max_qty, flt(row.cumulative_qty_complete)))
+		processed_rows.append(row)
+
+	if not processed_rows:
+		return {}
+
+	doc.set("items", processed_rows)
+	try:
+		compute_progress_invoice_items(
+			doc, "Client Progress Invoice", source_doctype=source_doctype,
+			source_parent=None if doc.project else (doc.sales_order or doc.contract_document),
+			retention_rate=doc.retention_percent,
+		)
+	except frappe.ValidationError:
+		# Belt-and-suspenders only - the pre-clamp above should already
+		# make this unreachable. Drop this tick silently rather than 500
+		# the JS callback; the next ~2s tick (or the idle checkpoint save)
+		# reconciles it.
+		return {}
+
+	for row in processed_rows:
+		frappe.db.set_value(
+			"Client Progress Invoice Item", row.name,
+			{f: row.get(f) for f in LIVE_SYNC_FIELDS}, update_modified=False,
+		)
+
+	net_receivable = doc.total_this_period - doc.total_retention_held
+	frappe.db.set_value(
+		"Client Progress Invoice", cpi_name,
+		{
+			"total_this_period": doc.total_this_period,
+			"total_retention_held": doc.total_retention_held,
+			"net_receivable": net_receivable,
+		},
+	)
+
+	saved = frappe.get_doc("Client Progress Invoice", cpi_name)
+	saved.notify_update()
+	return {
+		"modified": saved.modified,
+		"total_this_period": doc.total_this_period,
+		"total_retention_held": doc.total_retention_held,
+		"net_receivable": net_receivable,
+	}
 
 
 def allow_cancel_when_linked_from_cpi(doc, method=None):

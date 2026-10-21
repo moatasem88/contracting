@@ -10,6 +10,7 @@
   "is_group",
   "parent_row_name",
   "work_item_template",
+  "boq_item_no",
   "item_name",
   "description",
   "item_type",
@@ -19,10 +20,12 @@
   "vat_percentage",
   "other_additions_pct",
   "fixed_additions",
+  "fixed_additions_per_unit",
   "effective_unit_price",
   "total_amount",
   "material_cost",
   "labor_cost",
+  "subcontract_cost",
   "equipment_cost",
   "boq_direct_cost",
   "boq_safety_factor_amount",
@@ -30,6 +33,7 @@
   "indirect_cost_percent",
   "display_currency",
   "display_amount",
+  "client_rate",
   "margin_percent",
   "sell_rate",
   "sell_amount",
@@ -61,6 +65,14 @@
    "fieldtype": "Link",
    "label": "Work Item Template",
    "options": "Work Item Template V2"
+  },
+  {
+   "columns": 1,
+   "description": "The client's own BOQ item number (section path, e.g. 3.1.ب; SW- for site works). Filled by the BOQ intake, or by hand.",
+   "fieldname": "boq_item_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "BOQ Item No."
   },
   {
    "fieldname": "item_name",
@@ -118,7 +130,13 @@
   {
    "fieldname": "fixed_additions",
    "fieldtype": "Currency",
-   "label": "Fixed Additions"
+   "label": "Fixed Additions (Lump Sum)"
+  },
+  {
+   "default": "0",
+   "fieldname": "fixed_additions_per_unit",
+   "fieldtype": "Currency",
+   "label": "Fixed Additions (Per Unit)"
   },
   {
    "fieldname": "effective_unit_price",
@@ -146,6 +164,13 @@
    "fieldname": "labor_cost",
    "fieldtype": "Currency",
    "label": "Labor Cost",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of direct_cost_amount across this work item's Subcontract rows.",
+   "fieldname": "subcontract_cost",
+   "fieldtype": "Currency",
+   "label": "Subcontract Cost",
    "read_only": 1
   },
   {
@@ -198,9 +223,16 @@
    "read_only": 1
   },
   {
+   "description": "The client's price for this line. When set, Sell Rate is pinned to it and Margin % is derived from the cost (negative = priced below cost). Clear it to set the margin by hand.",
+   "fieldname": "client_rate",
+   "fieldtype": "Currency",
+   "label": "Client Rate"
+  },
+  {
    "fieldname": "margin_percent",
    "fieldtype": "Percent",
-   "label": "Margin %"
+   "label": "Margin %",
+   "read_only_depends_on": "eval:doc.client_rate"
   },
   {
    "fieldname": "sell_rate",
@@ -245,7 +277,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-16 08:52:57.819119",
+ "modified": "2026-10-21 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tender BOQ Item",

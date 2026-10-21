@@ -25,6 +25,7 @@
   "legacy_measured_by",
   "legacy_approved_by",
   "items_section",
+  "progress_tree",
   "items",
   "condition_progress_section",
   "condition_progress",
@@ -180,6 +181,11 @@
    "fieldname": "items_section",
    "fieldtype": "Section Break",
    "label": "Progress"
+  },
+  {
+   "fieldname": "progress_tree",
+   "fieldtype": "HTML",
+   "label": "Progress by Work Item"
   },
   {
    "fieldname": "items",

@@ -7,11 +7,13 @@
  "engine": "InnoDB",
  "field_order": [
   "work_item",
+  "work_item_template",
   "condition",
   "percent",
   "category",
   "material_item",
   "labor_item",
+  "subcontract_item",
   "equipment_item"
  ],
  "fields": [
@@ -22,6 +24,15 @@
    "in_list_view": 1,
    "label": "Work Item (Override)",
    "options": "Tender BOQ Item"
+  },
+  {
+   "description": "Scope this condition to one template line. Leave both Work Item and Work Item Template blank for the contract-wide default.",
+   "fieldname": "work_item_template",
+   "fieldtype": "Link",
+   "label": "Work Item Template",
+   "options": "Work Item Template V2",
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "condition",
@@ -43,7 +54,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Category",
-   "options": "\nMaterial\nLabor\nEquipment"
+   "options": "\nMaterial\nLabor\nSubcontract\nEquipment"
   },
   {
    "depends_on": "eval:doc.category==\"Material\"",
@@ -60,6 +71,13 @@
    "options": "Contractor Contract Labor Item"
   },
   {
+   "depends_on": "eval:doc.category==\"Subcontract\"",
+   "fieldname": "subcontract_item",
+   "fieldtype": "Link",
+   "label": "Subcontract Item",
+   "options": "Contractor Contract Subcontract Item"
+  },
+  {
    "depends_on": "eval:doc.category==\"Equipment\"",
    "fieldname": "equipment_item",
    "fieldtype": "Link",
@@ -70,7 +88,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-30 12:00:00.000000",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Contractor Contract Payment Condition",

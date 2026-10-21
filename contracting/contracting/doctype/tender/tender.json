@@ -42,6 +42,8 @@
   "material_items",
   "labor_tab",
   "labor_items",
+  "subcontract_tab",
+  "subcontract_items",
   "equipment_tab",
   "equipment_items",
   "legacy_pre_migration_section",
@@ -284,6 +286,17 @@
    "options": "Tender Labor Item"
   },
   {
+   "fieldname": "subcontract_tab",
+   "fieldtype": "Tab Break",
+   "label": "Subcontract"
+  },
+  {
+   "fieldname": "subcontract_items",
+   "fieldtype": "Table",
+   "label": "Subcontract Items",
+   "options": "Tender Subcontract Item"
+  },
+  {
    "fieldname": "equipment_tab",
    "fieldtype": "Tab Break",
    "label": "Equipment"
@@ -412,7 +425,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-11 17:19:22.799399",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tender",
@@ -432,10 +445,10 @@
    "write": 1
   },
   {
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
+   "export": 0,
+   "print": 0,
+   "read": 0,
+   "report": 0,
    "role": "Contracts Manager",
    "select": 1
   },
