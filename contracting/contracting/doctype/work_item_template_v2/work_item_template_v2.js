@@ -4,8 +4,8 @@ frappe.ui.form.on('Work Item Template V2', {
 		// physical goods in this bench's data (plenty of real equipment -
 		// Scaffolding, Furniture, Tools - is marked is_stock_item=0 for
 		// unrelated stock-tracking reasons). Item Group is the actual
-		// signal: dedicated "Labor" / "Equipment" groups keep those two
-		// pools visually distinct in the picker from ordinary material.
+		// signal: dedicated "Labor" / "Subcontractors Items" / "Equipment"
+		// groups keep those pools visually distinct in the picker from ordinary material.
 		// Registered in setup (not just onload) to match this app's own
 		// convention (see contract_document.js) - onload alone has been
 		// observed not to stick for grid Link fields on every load.
@@ -20,13 +20,16 @@ frappe.ui.form.on('Work Item Template V2', {
 	material_items_remove(frm) { calculate_totals(frm); },
 	labor_items_add(frm) { calculate_totals(frm); },
 	labor_items_remove(frm) { calculate_totals(frm); },
+	subcontract_items_add(frm) { calculate_totals(frm); },
+	subcontract_items_remove(frm) { calculate_totals(frm); },
 	equipment_items_add(frm) { calculate_totals(frm); },
 	equipment_items_remove(frm) { calculate_totals(frm); },
 	additions_add(frm) { calculate_totals(frm); },
 	additions_remove(frm) { calculate_totals(frm); }
 });
 
-['Template Material Item V2', 'Template Labor Item V2', 'Template Equipment Item V2'].forEach(dt => {
+['Template Material Item V2', 'Template Labor Item V2', 'Template Subcontract Item V2', 'Template Equipment Item V2']
+	.forEach(dt => {
 	frappe.ui.form.on(dt, {
 		qty_per_unit(frm, cdt, cdn) { calculate_totals(frm); },
 		rate(frm, cdt, cdn) { calculate_totals(frm); }
@@ -42,12 +45,15 @@ frappe.ui.form.on('Work Item Template Addition', {
 function set_item_queries(frm) {
 	frm.set_query('item', 'material_items', () => ({filters: {is_stock_item: 1}}));
 	frm.set_query('item', 'labor_items', () => ({filters: {item_group: 'Labor'}}));
+	frm.set_query('item', 'subcontract_items', () => ({filters: {item_group: 'Subcontractors Items'}}));
 	frm.set_query('item', 'equipment_items', () => ({filters: {item_group: 'Equipment'}}));
 }
 
+const TEMPLATE_RESOURCE_TABLES = ['material_items', 'labor_items', 'subcontract_items', 'equipment_items'];
+
 function calculate_totals(frm, opts) {
 	let base_cost = 0;
-	['material_items', 'labor_items', 'equipment_items'].forEach(fieldname => {
+	TEMPLATE_RESOURCE_TABLES.forEach(fieldname => {
 		(frm.doc[fieldname] || []).forEach(row => {
 			row.amount = (row.qty_per_unit || 0) * (row.rate || 0);
 			base_cost += row.amount;
@@ -76,7 +82,5 @@ function calculate_totals(frm, opts) {
 		frm.set_value('total_cost_per_unit', base_cost + total_additions);
 		frm.set_value('total_fixed_lump_sum', fixed_lump_sum);
 	}
-	frm.refresh_field('material_items');
-	frm.refresh_field('labor_items');
-	frm.refresh_field('equipment_items');
+	TEMPLATE_RESOURCE_TABLES.forEach(fieldname => frm.refresh_field(fieldname));
 }

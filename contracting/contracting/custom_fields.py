@@ -275,6 +275,20 @@ CUSTOM_FIELDS = {
 			"insert_after": "amount",
 		},
 	],
+	"Template Subcontract Item V2": [
+		{
+			"fieldname": "custom_item_name",
+			"fieldtype": "Data",
+			"label": "Item Name",
+			"insert_after": "item",
+		},
+		{
+			"fieldname": "custom_unit",
+			"fieldtype": "Data",
+			"label": "Unit",
+			"insert_after": "amount",
+		},
+	],
 	"Template Equipment Item V2": [
 		{
 			"fieldname": "custom_item_name",

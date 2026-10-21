@@ -266,6 +266,54 @@ class TestTender(FrappeTestCase):
 		self.assertAlmostEqual(tender.total_additions, 50)
 
 
+	# ---------- Client rate pins the sell rate (BOQ intake, 2026-10-21) ----------
+
+	def _priced_tender(self, name, labor_rate=100):
+		tender = make_tender(name, qty=10)
+		tender.append("labor_items", {"work_item": 1, "item": "_Test Tender Labor", "qty_per_unit": 1,
+									  "rate": labor_rate, "currency": tender.base_currency()})
+		tender.save(ignore_permissions=True)
+		return tender
+
+	def test_client_rate_pins_sell_rate_and_derives_margin(self):
+		tender = self._priced_tender("_Test client rate")
+		row = tender.boq_items[0]
+		cost = row.effective_unit_price
+		self.assertTrue(cost > 0)
+		row.client_rate = cost * 1.25
+		tender.save(ignore_permissions=True)
+		row = tender.boq_items[0]
+		self.assertAlmostEqual(row.sell_rate, cost * 1.25)
+		self.assertAlmostEqual(row.margin_percent, 25)
+		self.assertAlmostEqual(row.sell_amount, cost * 1.25 * 10)
+
+	def test_client_rate_below_cost_gives_negative_margin(self):
+		tender = self._priced_tender("_Test client rate low")
+		row = tender.boq_items[0]
+		row.client_rate = row.effective_unit_price / 2
+		tender.save(ignore_permissions=True)
+		self.assertAlmostEqual(tender.boq_items[0].margin_percent, -50)
+
+	def test_client_rate_with_no_cost_sells_at_client_rate(self):
+		tender = make_tender("_Test client rate zero")
+		tender.boq_items[0].client_rate = 300
+		tender.save(ignore_permissions=True)
+		row = tender.boq_items[0]
+		self.assertEqual((row.sell_rate, row.margin_percent, row.sell_amount), (300, 0, 3000))
+
+	def test_clearing_client_rate_returns_to_manual_margin(self):
+		tender = self._priced_tender("_Test client rate clear")
+		row = tender.boq_items[0]
+		row.client_rate = row.effective_unit_price * 2
+		tender.save(ignore_permissions=True)
+		row = tender.boq_items[0]
+		row.client_rate = 0
+		row.margin_percent = 10
+		tender.save(ignore_permissions=True)
+		row = tender.boq_items[0]
+		self.assertAlmostEqual(row.sell_rate, row.effective_unit_price * 1.1)
+
+
 class TestTenderExport(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
@@ -316,7 +364,7 @@ class TestTenderExport(FrappeTestCase):
 		filename, wb = self._export(tender)
 
 		self.assertEqual(filename, f"{tender.name}.xlsx")
-		self.assertEqual(wb.sheetnames, ["BOQ Items", "Material", "Labor", "Equipment"])
+		self.assertEqual(wb.sheetnames, ["BOQ Items", "Material", "Labor", "Subcontract", "Equipment"])
 		self.assertEqual(wb["BOQ Items"].max_row, 2)
 		self.assertEqual(wb["Labor"].max_row, 3)
 		self.assertEqual(wb["Equipment"].max_row, 1)  # header only

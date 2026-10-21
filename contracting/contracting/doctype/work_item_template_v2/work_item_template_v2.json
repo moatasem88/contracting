@@ -17,6 +17,8 @@
   "material_items",
   "labor_section",
   "labor_items",
+  "subcontract_section",
+  "subcontract_items",
   "equipment_section",
   "equipment_items",
   "additions_section",
@@ -95,6 +97,17 @@
    "options": "Template Labor Item V2"
   },
   {
+   "fieldname": "subcontract_section",
+   "fieldtype": "Section Break",
+   "label": "Subcontract"
+  },
+  {
+   "fieldname": "subcontract_items",
+   "fieldtype": "Table",
+   "label": "Subcontract Items",
+   "options": "Template Subcontract Item V2"
+  },
+  {
    "fieldname": "equipment_section",
    "fieldtype": "Section Break",
    "label": "Equipment"
@@ -166,7 +179,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-13 15:00:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Work Item Template V2",

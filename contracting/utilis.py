@@ -92,7 +92,7 @@ def work_item_billing_group(tender, boq_row):
     resource belongs to, and to "All Item Groups" (always present) if
     the work item has no resources at all. Real per-work-item billing
     items are a follow-up, not solved here."""
-    for fieldname in ("material_items", "labor_items", "equipment_items"):
+    for fieldname in ("material_items", "labor_items", "subcontract_items", "equipment_items"):
         for resource_row in tender.get(fieldname):
             if resource_row.work_item == boq_row.idx and resource_row.item:
                 item_group = frappe.db.get_value("Item", resource_row.item, "item_group")

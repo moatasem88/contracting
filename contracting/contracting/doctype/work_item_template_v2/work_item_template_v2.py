@@ -37,10 +37,15 @@ class WorkItemTemplateV2(Document):
 	def validate_service_items(self):
 		# is_stock_item doesn't reliably distinguish service items from
 		# physical goods in this bench's data - Item Group is the real
-		# signal (dedicated "Labor" / "Equipment" groups). Enforced here
+		# signal (dedicated "Labor" / "Subcontractors Items" / "Equipment"
+		# groups). Enforced here
 		# too, not just via the client-side item picker filter, so Data
 		# Import/API entry can't slip a mismatched item into a line.
-		required_group = {"labor_items": "Labor", "equipment_items": "Equipment"}
+		required_group = {
+			"labor_items": "Labor",
+			"subcontract_items": "Subcontractors Items",
+			"equipment_items": "Equipment",
+		}
 		for fieldname, group in required_group.items():
 			for row in self.get(fieldname):
 				item_group = frappe.db.get_value("Item", row.item, "item_group")
@@ -54,7 +59,7 @@ class WorkItemTemplateV2(Document):
 
 	def calculate_totals(self):
 		base_cost = 0.0
-		for table in (self.material_items, self.labor_items, self.equipment_items):
+		for table in (self.material_items, self.labor_items, self.subcontract_items, self.equipment_items):
 			for row in table:
 				row.amount = (row.qty_per_unit or 0) * (row.rate or 0)
 				base_cost += row.amount
@@ -137,7 +142,10 @@ class WorkItemTemplateV2(Document):
 			"stock_uom": self.uom,
 			"is_stock_item": 0,
 			"description": self.description or self.template_name,
-		}).insert(ignore_permissions=True)
+		})
+		# The template's own Work Item, not a material - see controllers/item.py.
+		item.flags.from_work_item_template = True
+		item.insert(ignore_permissions=True)
 		self.db_set("item", item.name, update_modified=False)
 
 	def update_work_item(self):
@@ -153,6 +161,7 @@ class WorkItemTemplateV2(Document):
 			return
 
 		item.update(changes)
+		item.flags.from_work_item_template = True
 		item.save(ignore_permissions=True)
 
 	def rename_work_item(self, target_code):

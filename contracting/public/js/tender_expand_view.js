@@ -2,6 +2,7 @@ const EXPAND_VIEW_GRIDS = [
     {fieldname: 'boq_items', doctype: 'Tender BOQ Item'},
     {fieldname: 'material_items', doctype: 'Tender Material Item'},
     {fieldname: 'labor_items', doctype: 'Tender Labor Item'},
+    {fieldname: 'subcontract_items', doctype: 'Tender Subcontract Item'},
     {fieldname: 'equipment_items', doctype: 'Tender Equipment Item'},
 ];
 

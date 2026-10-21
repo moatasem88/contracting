@@ -20,6 +20,7 @@ def get_v2_template_rows(template_name):
 	for fieldname, resource_type in (
 		("material_items", "material"),
 		("labor_items", "labor"),
+		("subcontract_items", "subcontract"),
 		("equipment_items", "equipment"),
 	):
 		for row in template.get(fieldname):

@@ -42,6 +42,8 @@
   "material_items",
   "labor_tab",
   "labor_items",
+  "subcontract_tab",
+  "subcontract_items",
   "equipment_tab",
   "equipment_items"
  ],
@@ -263,6 +265,17 @@
    "options": "Tender Labor Item"
   },
   {
+   "fieldname": "subcontract_tab",
+   "fieldtype": "Tab Break",
+   "label": "Subcontract"
+  },
+  {
+   "fieldname": "subcontract_items",
+   "fieldtype": "Table",
+   "label": "Subcontract Items",
+   "options": "Tender Subcontract Item"
+  },
+  {
    "fieldname": "equipment_tab",
    "fieldtype": "Tab Break",
    "label": "Equipment"
@@ -276,7 +289,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-13 15:00:00.000000",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tender",
