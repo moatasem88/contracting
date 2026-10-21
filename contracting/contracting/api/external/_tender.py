@@ -72,7 +72,7 @@ def create_tender(project_tender, **fields):
 
 def list_work_item_templates(search=None, limit=None, start=None):
 	return list_view(
-		TEMPLATE_DOCTYPE, ("name", "template_name", "description", "uom"), None, search,
+		TEMPLATE_DOCTYPE, ("name", "template_name", "description", "uom", "category"), None, search,
 		("template_name", "description"), limit, start, order_by="template_name asc",
 	)
 
@@ -98,7 +98,9 @@ def add_boq_lines(tender, groups=None, lines=None, modified=None):
 
 	One locked load and one save, so the batch lands whole or not at all.
 	Lines whose BOQ Item No. is already on the Tender are skipped, so a
-	retry after a partial failure elsewhere never adds a line twice."""
+	retry after a partial failure elsewhere never adds a line twice. Lines
+	whose template doesn't exist are returned in `missing` and left out;
+	any other bad line fails the whole batch."""
 	groups, lines = parse(groups, []) or [], parse(lines, []) or []
 	if not lines:
 		frappe.throw(_("No lines to add."))
@@ -116,7 +118,7 @@ def add_boq_lines(tender, groups=None, lines=None, modified=None):
 		titles[group["key"]] = group["title"].strip()[:140]
 
 	existing = {row.boq_item_no for row in doc.boq_items if row.boq_item_no}
-	seen, checked = set(), []
+	seen, checked, missing = set(), [], {}
 	for index, line in enumerate(lines, 1):
 		number = (line.get("boq_item_no") or "").strip()
 		label = number or _("Line {0}").format(index)
@@ -129,7 +131,13 @@ def add_boq_lines(tender, groups=None, lines=None, modified=None):
 			continue
 		if line.get("group") and line["group"] not in titles:
 			frappe.throw(_("{0}: unknown group {1}.").format(label, line["group"]))
-		load(TEMPLATE_DOCTYPE, line.get("template"))
+		template = line.get("template")
+		if not template or not frappe.db.exists(TEMPLATE_DOCTYPE, template):
+			# One line's template being gone (renamed, deleted, from another
+			# site) shouldn't block the rest: it is reported, the others added.
+			missing[number] = _("Work Item Template {0} not found.").format(template or "-")
+			continue
+		load(TEMPLATE_DOCTYPE, template)
 		quantity = positive(line.get("quantity"), _("{0} quantity").format(label))
 		client_rate = positive(line.get("client_rate") or 0, _("{0} client rate").format(label), allow_zero=True)
 		checked.append((number, line, quantity, client_rate))
@@ -160,6 +168,7 @@ def add_boq_lines(tender, groups=None, lines=None, modified=None):
 	return {
 		"added": {number: row.name for number, row in added.items()},
 		"skipped": sorted(seen & existing),
+		"missing": missing,
 		"view": _view(doc),
 	}
 

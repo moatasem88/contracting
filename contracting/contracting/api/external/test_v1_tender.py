@@ -229,10 +229,18 @@ class TestV1Tender(FrappeTestCase):
 	def test_add_boq_lines_checks_everything_first(self):
 		tender = make_tender("_v1 boq bad")
 		groups, lines = self._boq_lines()
-		bad = lines + [{"boq_item_no": "2.2", "template": "_no such template", "quantity": 1, "group": "2"}]
-		self.assertRaises(frappe.DoesNotExistError, v1.add_boq_lines, tender.name, bad, groups)
+		bad = lines + [{"boq_item_no": "2.2", "template": self.template, "quantity": 0, "group": "2"}]
+		self.assertRaises(frappe.ValidationError, v1.add_boq_lines, tender.name, bad, groups)
 		self.assertRaises(frappe.ValidationError, v1.add_boq_lines, tender.name, lines + lines[:1], groups)
 		self.assertEqual(len(frappe.get_doc("Tender", tender.name).boq_items), 1)
+
+	def test_missing_template_fails_only_its_line(self):
+		tender = make_tender("_v1 boq missing")
+		groups, lines = self._boq_lines()
+		lines[1]["template"] = "_no such template"
+		response = v1.add_boq_lines(tender.name, lines, groups)
+		self.assertEqual(sorted(response["added"]), ["1.1", "2.1"])
+		self.assertEqual(list(response["missing"]), ["1.2"])
 
 	def test_add_boq_lines_needs_write_and_open_tender(self):
 		tender = make_tender("_v1 boq perm")
