@@ -19,6 +19,8 @@
   "labor_item",
   "equipment_item",
   "resource_item",
+  "resource_lines",
+  "pick_lines",
   "available_qty",
   "qty_delta",
   "unit_price",
@@ -125,6 +127,20 @@
    "read_only": 1
   },
   {
+   "fieldname": "resource_lines",
+   "fieldtype": "Small Text",
+   "label": "Resource Lines",
+   "hidden": 1,
+   "read_only": 1,
+   "description": "2026-10-20 partial contracts: the Tender resource rows (JSON list of names) an Add row takes onto the contract. Blank takes every line of the work item."
+  },
+  {
+   "fieldname": "pick_lines",
+   "fieldtype": "Button",
+   "label": "Pick Lines",
+   "depends_on": "eval:doc.action==\"Add\" && doc.work_item"
+  },
+  {
    "description": "Remaining quantity available on the base contract's tender, excluding the base contract's own already-committed qty.",
    "fieldname": "available_qty",
    "fieldtype": "Float",
@@ -169,7 +185,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-13 14:00:00.000000",
+ "modified": "2026-10-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Contractor Contract Addendum Item",

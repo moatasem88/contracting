@@ -1,19 +1,23 @@
 const ALLOCATION = 'contracting.contracting.utils.allocation';
 const PROGRESS_INVOICING = 'contracting.contracting.utils.progress_invoicing';
 const LINK = 'contracting.contracting.api.link';
-const LABOR_TYPES = ['Installing'];
+// 2026-10-18: the resource links a contract type claims row by row (Supply
+// and Install claims the whole work item). Mirrors
+// allocation.RESOURCE_PROPAGATION / type_resources server-side.
+const TYPE_RESOURCES = {
+	'Labor': ['labor_item'],
+	'Installing': ['labor_item', 'subcontract_item'],
+	'Equipment': ['equipment_item'],
+};
 
-function is_material_type(frm) {
-	return frm.doc.type_subcontractor === 'Supplying and installing';
-}
-
-function is_labor_type(frm) {
-	return LABOR_TYPES.includes(frm.doc.type_subcontractor);
-}
-
-function is_equipment_type(frm) {
-	return frm.doc.type_subcontractor === 'Equipment';
-}
+// Payment Condition category -> contract types it may be used on. Mirrors
+// subcontractor_contract.py CATEGORY_TYPE_GATE.
+const CATEGORY_TYPES = {
+	'Material': ['Supplying and installing'],
+	'Labor': ['Labor', 'Installing', 'Supplying and installing'],
+	'Subcontract': ['Installing', 'Supplying and installing'],
+	'Equipment': ['Equipment', 'Supplying and installing'],
+};
 
 // FR-01, extended 2026-08-30: a project (and so a contract) can be in
 // scope of more than one Tender - every picker filters against this list
@@ -26,6 +30,7 @@ function project_tenders(frm) {
 const RESOURCE_TABLES = {
 	contract_material_items: [`${ALLOCATION}.material_item_query`, 'material_item'],
 	contract_labor_items: [`${ALLOCATION}.labor_item_query`, 'labor_item'],
+	contract_subcontract_items: [`${ALLOCATION}.subcontract_item_query`, 'subcontract_item'],
 	contract_equipment_items: [`${ALLOCATION}.equipment_item_query`, 'equipment_item'],
 };
 
@@ -36,6 +41,7 @@ const RESOURCE_TABLES = {
 const RESOURCE_TITLE_DOCTYPES = {
 	contract_material_items: ['Tender Material Item', 'Contractor Contract Material Item'],
 	contract_labor_items: ['Tender Labor Item', 'Contractor Contract Labor Item'],
+	contract_subcontract_items: ['Tender Subcontract Item', 'Contractor Contract Subcontract Item'],
 	contract_equipment_items: ['Tender Equipment Item', 'Contractor Contract Equipment Item'],
 };
 
@@ -64,10 +70,22 @@ function contract_template_lines(frm) {
 const ITEM_FILTERS = {
 	contract_material_items: { is_stock_item: 1 },
 	contract_labor_items: { item_group: 'Labor' },
+	contract_subcontract_items: { item_group: 'Subcontractors Items' },
 	contract_equipment_items: { item_group: 'Equipment' },
 };
 
 const TEMPLATE_DOCTYPE = 'Work Item Template V2';
+
+// 2026-10-20: the contract-wide conditions a new contract starts with, at 0%
+// - the engineer sets the split (the 100% rule blocks save until then) and
+// deletes any that don't apply. Client-side only: an API / Data Import
+// insert would fail that same rule with 0% rows.
+const DEFAULT_PAYMENT_CONDITIONS = [
+	'On Supply - عند التوريد',
+	'On Install - عند التركيب',
+	'On Company Engineers Delivery - عند الاستلام من مهندسي الشركة',
+	'On Consultant Delivery - عند الاستلام من الاستشاري',
+];
 
 frappe.ui.form.on('Subcontractor Contract', {
 	setup(frm) {
@@ -140,11 +158,11 @@ frappe.ui.form.on('Subcontractor Contract', {
 		// FR-13: resource pickers scoped to this contract's own resource-tab
 		// rows, further filtered by the row's own work_item if one is set.
 		// NOTE: child_row_query is a server-side query against
-		// tabContractor Contract Material/Labor/Equipment Item - unlike
+		// tabContractor Contract Material/Labor/Subcontract/Equipment Item - unlike
 		// work_item above, these rows only exist once the contract has been
-		// saved at least once, so these 3 pickers are empty on a brand-new
+		// saved at least once, so these pickers are empty on a brand-new
 		// unsaved contract until the first save.
-		['material_item', 'labor_item', 'equipment_item'].forEach((fieldname) => {
+		['material_item', 'labor_item', 'subcontract_item', 'equipment_item'].forEach((fieldname) => {
 			frm.set_query(fieldname, 'payment_conditions', (doc, cdt, cdn) => {
 				const row = locals[cdt][cdn];
 				const filters = { parent: frm.doc.name };
@@ -153,6 +171,14 @@ frappe.ui.form.on('Subcontractor Contract', {
 				return { query: `${LINK}.child_row_query`, filters };
 			});
 		});
+	},
+
+	onload(frm) {
+		if (frm.is_new() && !(frm.doc.payment_conditions || []).length) {
+			DEFAULT_PAYMENT_CONDITIONS.forEach((condition) =>
+				frm.add_child('payment_conditions', { condition, percent: 0 }));
+			frm.refresh_field('payment_conditions');
+		}
 	},
 
 	refresh(frm) {
@@ -297,17 +323,13 @@ frappe.ui.form.on('Subcontractor Contract', {
 	},
 });
 
-// FR-14: category options restricted to whichever resource tabs the
-// server-side truth (LABOR_TYPES/EQUIPMENT/SUPPLY_AND_INSTALL, via these
-// same is_material_type/is_labor_type/is_equipment_type helpers) actually
-// applies to this contract type - not the JSON depends_on strings, which
-// disagree with the server for Labor/Equipment on a Supplying and
-// installing contract.
+// FR-14 / 2026-10-18 BRD FR-22: category options restricted to the contract
+// types each category is allowed on - the same matrix the server enforces
+// (CATEGORY_TYPE_GATE), so the dropdown never offers a category save would
+// reject (or hides one it would accept).
 function refresh_payment_condition_category_options(frm) {
-	const categories = [];
-	if (is_material_type(frm)) categories.push('Material');
-	if (is_labor_type(frm)) categories.push('Labor');
-	if (is_equipment_type(frm)) categories.push('Equipment');
+	const categories = Object.keys(CATEGORY_TYPES)
+		.filter((category) => CATEGORY_TYPES[category].includes(frm.doc.type_subcontractor));
 	frm.fields_dict.payment_conditions.grid.update_docfield_property(
 		'category', 'options', [''].concat(categories).join('\n')
 	);
@@ -360,10 +382,13 @@ function refresh_project_tenders(frm) {
 // server-side guarantee for API/Data Import paths this can't reach).
 function prune_orphaned_resource_rows(frm) {
 	const surviving = new Set((frm.doc.contracted_items || []).map(line_key).filter(Boolean));
+	const live_rows = new Set((frm.doc.contracted_items || []).map((r) => r.name));
 
 	Object.keys(RESOURCE_TABLES).forEach((fieldname) => {
 		const rows = frm.doc[fieldname] || [];
-		const kept = rows.filter((r) => surviving.has(line_key(r)));
+		// 2026-10-20: a row taken for a specific Contracted Items row goes
+		// with that row; older rows (no contract_row) go with their line.
+		const kept = rows.filter((r) => (r.contract_row ? live_rows.has(r.contract_row) : surviving.has(line_key(r))));
 		if (kept.length !== rows.length) {
 			frm.set_value(fieldname, kept);
 			frm.refresh_field(fieldname);
@@ -530,14 +555,25 @@ function link_title(doctype, name) {
 // its work_item / work_item_template) - a template line propagates from its
 // Work Item Template V2 instead (FR-07), and rescales by matching rows on
 // their Item rather than on a Tender resource link.
-function propagate_resources(frm, line, qty) {
+//
+// 2026-10-20 (partial contracts): `lines` (the dialog's ticked Tender
+// resource-row names) limits creation to those lines; omitted, every line
+// is taken. Each created row records its Contracted Items row in
+// contract_row, and a rescale only touches the rows it owns - a contract
+// can now carry two rows for the same work item (e.g. after an Addendum
+// added another line), and one row's qty must not rescale the other's lines.
+function propagate_resources(frm, line, qty, lines) {
 	const key = line_key(line);
 	if (!key) return;
 	const is_template = !line.work_item;
-	const contracted_row = (frm.doc.contracted_items || []).find((row) => line_key(row) === key);
+	const contracted_row = line.doctype === 'Contractor Contract Item'
+		? line
+		: (frm.doc.contracted_items || []).find((row) => line_key(row) === key);
+	const owned = (row) => (row.contract_row
+		? !!contracted_row && row.contract_row === contracted_row.name
+		: line_key(row) === key);
 	const has_existing = (contracted_row && contracted_row.resources_propagated)
-		|| Object.keys(RESOURCE_TABLES).some((fieldname) =>
-			(frm.doc[fieldname] || []).some((row) => line_key(row) === key));
+		|| Object.keys(RESOURCE_TABLES).some((fieldname) => (frm.doc[fieldname] || []).some(owned));
 
 	if (!has_existing && !flt(qty)) return;
 
@@ -551,6 +587,7 @@ function propagate_resources(frm, line, qty) {
 				work_item: line.work_item, qty,
 				contract_type: frm.doc.type_subcontractor,
 				subcontractor_contract: frm.doc.name,
+				lines: !has_existing && lines ? JSON.stringify(lines) : null,
 			},
 		callback(r) {
 			const by_table = r.message || {};
@@ -563,7 +600,8 @@ function propagate_resources(frm, line, qty) {
 
 				if (!has_existing) {
 					new_rows.forEach((row) => {
-						const added = frm.add_child(fieldname, row);
+						const added = frm.add_child(fieldname,
+							Object.assign({}, row, { contract_row: contracted_row ? contracted_row.name : null }));
 						// A propagated row is added via frm.add_child(), which
 						// never calls frappe.utils.add_link_title() the way a
 						// real dropdown selection does - so both the Tender-
@@ -582,7 +620,7 @@ function propagate_resources(frm, line, qty) {
 						frappe.utils.add_link_title(contract_doctype, added.name, row.resource_item);
 					});
 				} else {
-					const existing_rows = (frm.doc[fieldname] || []).filter((row) => line_key(row) === key);
+					const existing_rows = (frm.doc[fieldname] || []).filter(owned);
 					const match_field = is_template ? 'item' : link_fieldname;
 					new_rows.forEach((new_row) => {
 						const match = existing_rows.find((row) => row[match_field] === new_row[match_field]);
@@ -602,6 +640,7 @@ function propagate_resources(frm, line, qty) {
 
 			if (!has_existing && contracted_row) {
 				updates.push(frappe.model.set_value(contracted_row.doctype, contracted_row.name, 'resources_propagated', 1));
+				split_total_price(frm, contracted_row);
 			}
 
 			// Guards the qty handlers below (FR-05) from mistaking this
@@ -640,6 +679,7 @@ frappe.ui.form.on('Contractor Contract Item', {
 	},
 
 	qty(frm, cdt, cdn) {
+		roll_up_component_price(frm, locals[cdt][cdn]);
 		set_amount(cdt, cdn);
 		maybe_propagate_row(frm, cdt, cdn);
 	},
@@ -659,13 +699,16 @@ frappe.ui.form.on('Contractor Contract Item', {
 
 	unit_price(frm, cdt, cdn) {
 		set_amount(cdt, cdn);
+		split_total_price(frm, locals[cdt][cdn]);
 	},
 
 	// FR-01: server enforces unit_price's read_only_depends_on
 	// (validate_price_ceiling/compute_component_pricing are the real
 	// authority, per NFR-01) - this just makes the grid re-evaluate that
 	// condition immediately instead of on next redraw.
-	pricing_mode(frm) {
+	pricing_mode(frm, cdt, cdn) {
+		roll_up_component_price(frm, locals[cdt][cdn]);
+		split_total_price(frm, locals[cdt][cdn]);
 		frm.fields_dict.contracted_items.grid.refresh();
 	},
 
@@ -675,9 +718,9 @@ frappe.ui.form.on('Contractor Contract Item', {
 	},
 });
 
-// The three new resource tabs share the same work_item -> resource_item /
+// The resource tabs share the same work_item -> resource_item /
 // available_qty shape as Contractor Contract Item above, just against
-// their own doctype and single link fieldname. Labor/Equipment reuse the
+// their own doctype and single link fieldname. Labor/Subcontract/Equipment reuse the
 // same get_available_qty endpoint contracted_items already calls (their
 // contract_type branch in get_row_availability already handles a single
 // resource link); Material has no contract_type of its own, so it goes
@@ -698,7 +741,7 @@ frappe.ui.form.on('Contractor Contract Labor Item', {
 		frappe.call({
 			method: `${ALLOCATION}.get_available_qty`,
 			args: {
-				contract_type: 'Installing',
+				contract_type: 'Labor',
 				work_item: row.work_item,
 				labor_item: row.labor_item,
 				subcontractor_contract: frm.doc.name,
@@ -714,13 +757,62 @@ frappe.ui.form.on('Contractor Contract Labor Item', {
 	// row from further rescaling - unless this write is the rescale's own
 	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
 	qty(frm, cdt, cdn) {
-		if (frm.__rescaling) return;
+		if (frm.__rescaling) {
+			roll_up_component_price(frm, locals[cdt][cdn]);
+			return;
+		}
 		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
-		set_resource_amount(cdt, cdn);
+		set_resource_amount(frm, cdt, cdn);
+		cap_component_qty(frm, cdt, cdn);
 	},
 
 	rate(frm, cdt, cdn) {
-		set_resource_amount(cdt, cdn);
+		set_resource_amount(frm, cdt, cdn);
+	},
+});
+
+frappe.ui.form.on('Contractor Contract Subcontract Item', {
+	work_item(frm, cdt, cdn) {
+		frappe.model.set_value(cdt, cdn, 'subcontract_item', null);
+		frappe.model.set_value(cdt, cdn, 'resource_item', null);
+		frappe.model.set_value(cdt, cdn, 'available_qty', 0);
+	},
+
+	subcontract_item(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		frappe.model.set_value(cdt, cdn, 'resource_item', link_title('Tender Subcontract Item', row.subcontract_item));
+		if (!row.subcontract_item) return;
+
+		frappe.call({
+			method: `${ALLOCATION}.get_available_qty`,
+			args: {
+				contract_type: 'Installing',
+				work_item: row.work_item,
+				subcontract_item: row.subcontract_item,
+				subcontractor_contract: frm.doc.name,
+			},
+			callback(r) {
+				if (r.message === undefined || r.message === null) return;
+				frappe.model.set_value(cdt, cdn, 'available_qty', r.message);
+			},
+		});
+	},
+
+	// FR-05: a direct hand-edit of qty in this tab permanently protects the
+	// row from further rescaling - unless this write is the rescale's own
+	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
+	qty(frm, cdt, cdn) {
+		if (frm.__rescaling) {
+			roll_up_component_price(frm, locals[cdt][cdn]);
+			return;
+		}
+		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
+		set_resource_amount(frm, cdt, cdn);
+		cap_component_qty(frm, cdt, cdn);
+	},
+
+	rate(frm, cdt, cdn) {
+		set_resource_amount(frm, cdt, cdn);
 	},
 });
 
@@ -755,13 +847,17 @@ frappe.ui.form.on('Contractor Contract Equipment Item', {
 	// row from further rescaling - unless this write is the rescale's own
 	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
 	qty(frm, cdt, cdn) {
-		if (frm.__rescaling) return;
+		if (frm.__rescaling) {
+			roll_up_component_price(frm, locals[cdt][cdn]);
+			return;
+		}
 		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
-		set_resource_amount(cdt, cdn);
+		set_resource_amount(frm, cdt, cdn);
+		cap_component_qty(frm, cdt, cdn);
 	},
 
 	rate(frm, cdt, cdn) {
-		set_resource_amount(cdt, cdn);
+		set_resource_amount(frm, cdt, cdn);
 	},
 });
 
@@ -794,13 +890,17 @@ frappe.ui.form.on('Contractor Contract Material Item', {
 	// row from further rescaling - unless this write is the rescale's own
 	// (FR-06), guarded by propagate_resources' own frm.__rescaling flag.
 	qty(frm, cdt, cdn) {
-		if (frm.__rescaling) return;
+		if (frm.__rescaling) {
+			roll_up_component_price(frm, locals[cdt][cdn]);
+			return;
+		}
 		frappe.model.set_value(cdt, cdn, 'auto_propagated', 0);
-		set_resource_amount(cdt, cdn);
+		set_resource_amount(frm, cdt, cdn);
+		cap_component_qty(frm, cdt, cdn);
 	},
 
 	rate(frm, cdt, cdn) {
-		set_resource_amount(cdt, cdn);
+		set_resource_amount(frm, cdt, cdn);
 	},
 });
 
@@ -809,22 +909,127 @@ function set_amount(cdt, cdn) {
 	frappe.model.set_value(cdt, cdn, 'amount', flt(row.qty) * flt(row.unit_price));
 }
 
-// Same shape as set_amount above, for the three resource tabs' rate/amount
-// pair - which compute_component_pricing (server) rolls up into the parent
+// Same shape as set_amount above, for the resource tabs' rate/amount pair -
+// which compute_component_pricing (server) rolls up into the parent
 // Contracted Items row's unit_price when that row is in Components mode.
-function set_resource_amount(cdt, cdn) {
+function set_resource_amount(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	frappe.model.set_value(cdt, cdn, 'amount', flt(row.qty) * flt(row.rate));
+	roll_up_component_price(frm, row);
+}
+
+// [fieldname, resource row] pairs a Contracted Items row owns - stamped
+// with its name, or (rows from before contract_row) unstamped on its line.
+// Mirrors SubcontractorContract._owned_resource_rows.
+function owned_resource_rows(frm, contracted_row) {
+	const key = line_key(contracted_row);
+	const result = [];
+	Object.keys(RESOURCE_TABLES).forEach((fieldname) => {
+		(frm.doc[fieldname] || []).forEach((r) => {
+			const owned = r.contract_row ? r.contract_row === contracted_row.name : line_key(r) === key;
+			if (owned) result.push([fieldname, r]);
+		});
+	});
+	return result;
+}
+
+// The Contracted Items rows a resource row's change concerns.
+function owning_contract_rows(frm, resource_row) {
+	const key = line_key(resource_row);
+	return (frm.doc.contracted_items || []).filter((row) => (resource_row.contract_row
+		? row.name === resource_row.contract_row
+		: line_key(row) === key));
+}
+
+// Client mirror of SubcontractorContract.compute_component_pricing: a
+// Components-priced line's unit_price is the sum of qty x rate over the
+// resource rows it owns, divided by the line's qty. The server recomputes
+// it on save; this keeps the grid showing the real figure.
+function roll_up_component_price(frm, resource_row) {
+	if (!line_key(resource_row)) return;
+	const rows = resource_row.doctype === 'Contractor Contract Item'
+		? [resource_row]
+		: owning_contract_rows(frm, resource_row);
+	rows.filter((row) => row.pricing_mode === 'Components').forEach((row) => {
+		const component_total = owned_resource_rows(frm, row)
+			.reduce((s, [, r]) => s + flt(r.qty) * flt(r.rate), 0);
+		const unit_price = flt(row.qty) ? component_total / flt(row.qty) : 0;
+		frappe.model.set_value(row.doctype, row.name, 'unit_price', unit_price);
+	});
+}
+
+// A hand-edited component qty may go below what its line takes of it, never
+// above (qty_per_unit x the Contracted Items qty). The server holds the
+// same rule on save (validate_component_qty); this pulls an over-typed
+// value straight back to the most allowed.
+function cap_component_qty(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	const owners = owning_contract_rows(frm, row);
+	if (!owners.length || !flt(row.qty)) return;
+	const line_qty = row.contract_row ? flt(owners[0].qty) : owners.reduce((s, r) => s + flt(r.qty), 0);
+	const [, link_fieldname] = RESOURCE_TABLES[row.parentfield];
+	frappe.call({
+		method: 'contracting.contracting.doctype.subcontractor_contract.subcontractor_contract.get_component_max_qty',
+		args: {
+			table: row.parentfield,
+			row: JSON.stringify({
+				[link_fieldname]: row[link_fieldname], work_item_template: row.work_item_template, item: row.item,
+			}),
+			line_qty,
+		},
+		callback(r) {
+			const max_qty = r.message;
+			if (max_qty === null || max_qty === undefined || flt(row.qty) <= flt(max_qty) + 1e-6) return;
+			frappe.model.set_value(cdt, cdn, 'qty', flt(max_qty));
+			frappe.show_alert({
+				message: __('{0}: qty cannot exceed {1} - what {2} units of the work item take of it.',
+					[row.resource_item || row.item, flt(max_qty), line_qty]),
+				indicator: 'orange',
+			}, 7);
+		},
+	});
+}
+
+// Total mode: the entered price is broken down over the line's cost
+// components in the proportions of their Tender (or template) budget. The
+// server works out the rates (get_component_rates) so the Tender figures
+// and proportions never reach the browser; the rates are placeholders the
+// user may edit, and save checks they still add up to the line amount.
+function split_total_price(frm, contracted_row) {
+	if (contracted_row.pricing_mode === 'Components' || !flt(contracted_row.unit_price)) return;
+	const owned = owned_resource_rows(frm, contracted_row);
+	if (!owned.length) return;
+	frappe.call({
+		method: 'contracting.contracting.doctype.subcontractor_contract.subcontractor_contract.get_component_rates',
+		args: {
+			rows: JSON.stringify(owned.map(([fieldname, r]) => ({
+				table: fieldname,
+				link: r[RESOURCE_TABLES[fieldname][1]],
+				source: r.source,
+				work_item_template: r.work_item_template,
+				item: r.item,
+				qty: r.qty,
+			}))),
+			line_amount: flt(contracted_row.qty) * flt(contracted_row.unit_price),
+		},
+		callback(r) {
+			(r.message || []).forEach((rate, i) => {
+				const [fieldname, row] = owned[i];
+				frappe.model.set_value(row.doctype, row.name, 'rate', rate);
+				frm.refresh_field(fieldname);
+			});
+		},
+	});
 }
 
 function refresh_available_qty(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	if (!row.work_item || !frm.doc.type_subcontractor) return;
 
-	// Labor/equipment types have nothing to show until the resource row is
+	// Resource-claiming types have nothing to show until a resource row is
 	// picked - availability is a property of that row, not the work item.
-	if (is_labor_type(frm) && !row.labor_item) return;
-	if (is_equipment_type(frm) && !row.equipment_item) return;
+	const resource_fields = TYPE_RESOURCES[frm.doc.type_subcontractor] || [];
+	if (resource_fields.length && !resource_fields.some((f) => row[f])) return;
 
 	frappe.call({
 		method: `${ALLOCATION}.get_available_qty`,
@@ -832,6 +1037,7 @@ function refresh_available_qty(frm, cdt, cdn) {
 			contract_type: frm.doc.type_subcontractor,
 			work_item: row.work_item,
 			labor_item: row.labor_item,
+			subcontract_item: row.subcontract_item,
 			equipment_item: row.equipment_item,
 			subcontractor_contract: frm.doc.name,
 		},
@@ -880,40 +1086,85 @@ function show_work_item_dialog(frm, rows) {
 	});
 }
 
+// fieldname -> tab label, for the line picker below.
+const LINE_TABLE_LABELS = {
+	contract_material_items: __('Material'),
+	contract_labor_items: __('Labor'),
+	contract_subcontract_items: __('Subcontract'),
+	contract_equipment_items: __('Equipment'),
+};
+
+// The work-item qty the ticked lines can all still support.
+function default_line_qty(lines) {
+	return lines.length ? Math.min(...lines.map((line) => flt(line.available_units))) : 0;
+}
+
+// 2026-10-20 (partial contracts): each work item expands to its lines - the
+// Tender resource rows this contract type can claim - and only the ticked
+// ones are taken onto the contract, so another contract (or an Addendum)
+// can take the rest. Lines with nothing left are shown but can't be ticked.
 function render_work_item_dialog(frm, rows, invoiced_by_work_item) {
+	const esc = frappe.utils.escape_html;
+	const state = rows.map((row) => ({
+		picked: false,
+		qty_edited: false,
+		lines: new Set((row.lines || []).filter((line) => flt(line.available_units) > 0).map((line) => line.name)),
+	}));
+	const ticked_lines = (idx) => (rows[idx].lines || []).filter((line) => state[idx].lines.has(line.name));
+
 	const dialog = new frappe.ui.Dialog({
 		title: __('Select Work Item'),
-		size: 'large',
+		size: 'extra-large',
 		fields: [
 			{ fieldname: 'search', fieldtype: 'Data', label: __('Search') },
 			{ fieldname: 'rows_html', fieldtype: 'HTML' },
 		],
 		primary_action_label: __('Add Selected'),
 		primary_action() {
-			const checked = dialog.$wrapper.find('.work-item-row input[type=checkbox]:checked');
-			if (!checked.length) {
-				frappe.msgprint(__('Select at least one row.'));
+			const picked = state.map((entry, idx) => [entry, idx]).filter(([entry]) => entry.picked);
+			if (!picked.length) {
+				frappe.msgprint(__('Select at least one work item.'));
 				return;
 			}
+			for (const [, idx] of picked) {
+				if (!ticked_lines(idx).length) {
+					frappe.msgprint(__('Tick at least one line for {0}.', [esc(rows[idx].description || rows[idx].work_item)]));
+					return;
+				}
+				if (flt(rows[idx].qty) <= 0) {
+					frappe.msgprint(__('Enter a quantity greater than 0 for {0}.', [esc(rows[idx].description || rows[idx].work_item)]));
+					return;
+				}
+			}
 
-			checked.each(function () {
-				const row = rows[$(this).closest('.work-item-row').data('idx')];
+			picked.forEach(([, idx]) => {
+				const row = rows[idx];
 				frappe.utils.add_link_title('Tender BOQ Item', row.work_item, row.item_name);
 				const child = Object.assign({}, row);
-				delete child.item_name;  // not a field on Contractor Contract Item
-				delete child.tender;  // display-only, not a field on Contractor Contract Item
-				delete child.item_code;  // display-only, not a field on Contractor Contract Item
-				delete child.contracted;  // display-only, not a field on Contractor Contract Item
-				frm.add_child('contracted_items', child);
-				// FR-06: qty is already known here (get_unallocated_boq_items'
-				// own availability default), so propagate immediately rather
-				// than waiting on the work_item/qty handler below.
-				propagate_resources(frm, row, row.qty);
+				// display-only, not fields on Contractor Contract Item
+				['item_name', 'tender', 'item_code', 'contracted', 'lines'].forEach((f) => delete child[f]);
+				const added = frm.add_child('contracted_items', child);
+				// FR-06: qty is known here, so propagate immediately - only the
+				// ticked lines.
+				propagate_resources(frm, added, row.qty, ticked_lines(idx).map((line) => line.name));
 			});
 			frm.refresh_field('contracted_items');
 			dialog.hide();
 		},
 	});
+
+	function line_html(idx, line) {
+		const free = flt(line.available_units) > 0;
+		return `<label style="display:flex; gap:10px; align-items:center; margin:0; padding:2px 0 2px 28px;
+				${free ? '' : 'color:var(--text-muted);'}">
+			<input type="checkbox" class="line-check" data-idx="${idx}" data-line="${esc(line.name)}"
+				${state[idx].lines.has(line.name) ? 'checked' : ''} ${free ? '' : 'disabled'}>
+			<span style="flex:1">${esc(LINE_TABLE_LABELS[line.table] || line.table)}</span>
+			<span style="flex:3">${esc(line.item || '')}</span>
+			<span style="flex:1">${__('Per Unit')}: ${flt(line.ratio)}</span>
+			<span style="flex:2">${__('Available')}: ${flt(line.available_qty)} / ${flt(line.budget)}</span>
+		</label>`;
+	}
 
 	function render(filter_text) {
 		const term = (filter_text || '').toLowerCase();
@@ -922,21 +1173,50 @@ function render_work_item_dialog(frm, rows, invoiced_by_work_item) {
 			// existing label match below also matches on it.
 			const label = (row.item_code ? `${row.item_code} — ` : '') + (row.description || row.work_item);
 			if (term && !label.toLowerCase().includes(term)) return '';
+			const entry = state[idx];
 			return `
-				<div class="work-item-row" data-idx="${idx}"
-					style="display:flex; align-items:center; gap:12px; padding:6px 0; border-bottom:1px solid var(--border-color);">
-					<input type="checkbox">
-					<span style="flex:2">${frappe.utils.escape_html(label)}</span>
-					<span style="flex:1; color:var(--text-muted);">${frappe.utils.escape_html(row.tender || '')}</span>
-					<span style="flex:1">${__('Available')}: ${flt(row.available_qty)}</span>
-					<span style="flex:1">${__('Contracted')}: ${flt(row.contracted)}</span>
-					<span style="flex:1">${__('Invoiced')}: ${flt(invoiced_by_work_item[row.work_item] || 0)}</span>
+				<div class="work-item-row" data-idx="${idx}" style="padding:6px 0; border-bottom:1px solid var(--border-color);">
+					<div style="display:flex; align-items:center; gap:12px;">
+						<input type="checkbox" class="work-item-check" ${entry.picked ? 'checked' : ''}>
+						<span style="flex:3">${esc(label)}</span>
+						<span style="flex:1; color:var(--text-muted);">${esc(row.tender || '')}</span>
+						<span style="flex:1">${__('Invoiced')}: ${flt(invoiced_by_work_item[row.work_item] || 0)}</span>
+						<span style="flex:1">${__('Qty')}:
+							<input type="number" step="any" min="0" class="form-control input-xs work-item-qty"
+								style="display:inline-block; width:90px" value="${flt(row.qty)}"></span>
+					</div>
+					<div class="work-item-lines" style="${entry.picked ? '' : 'display:none;'} margin-top:4px;">
+						${(row.lines || []).map((line) => line_html(idx, line)).join('')}
+					</div>
 				</div>
 			`;
 		}).join('');
-		dialog.fields_dict.rows_html.$wrapper.html(html || `<p>${__('No matches.')}</p>`);
+		const $wrapper = dialog.fields_dict.rows_html.$wrapper;
+		$wrapper.html(html || `<p>${__('No matches.')}</p>`);
+
+		$wrapper.find('.work-item-check').on('change', function () {
+			const idx = $(this).closest('.work-item-row').data('idx');
+			state[idx].picked = this.checked;
+			$(this).closest('.work-item-row').find('.work-item-lines').toggle(this.checked);
+		});
+		$wrapper.find('.work-item-qty').on('change', function () {
+			const idx = $(this).closest('.work-item-row').data('idx');
+			rows[idx].qty = flt($(this).val());
+			state[idx].qty_edited = true;
+		});
+		$wrapper.find('.line-check').on('change', function () {
+			const idx = $(this).data('idx');
+			const name = $(this).data('line');
+			if (this.checked) state[idx].lines.add(name); else state[idx].lines.delete(name);
+			if (!state[idx].qty_edited) {
+				rows[idx].qty = default_line_qty(ticked_lines(idx));
+				$(this).closest('.work-item-row').find('.work-item-qty').val(flt(rows[idx].qty));
+			}
+		});
 	}
 
+	// Default qty: what every line ticked by default can still support.
+	rows.forEach((row, idx) => { row.qty = default_line_qty(ticked_lines(idx)); });
 	dialog.fields_dict.search.df.onchange = () => render(dialog.get_value('search'));
 	render();
 	dialog.show();
@@ -1041,7 +1321,8 @@ function render_template_dialog(frm, templates) {
 
 // Free Item on template-sourced / extra resource rows: keep the readable
 // label and UOM in step with it (server re-derives both on save).
-['Contractor Contract Material Item', 'Contractor Contract Labor Item', 'Contractor Contract Equipment Item']
+['Contractor Contract Material Item', 'Contractor Contract Labor Item', 'Contractor Contract Subcontract Item',
+	'Contractor Contract Equipment Item']
 	.forEach((doctype) => {
 		frappe.ui.form.on(doctype, {
 			item(frm, cdt, cdn) {
@@ -1089,6 +1370,7 @@ const OUT_OF_SCOPE_GRIDS = {
 	contracted_items: __('Contracted Items'),
 	contract_material_items: __('Material'),
 	contract_labor_items: __('Labor'),
+	contract_subcontract_items: __('Subcontract'),
 	contract_equipment_items: __('Equipment'),
 };
 

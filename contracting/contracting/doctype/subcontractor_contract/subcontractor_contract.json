@@ -54,6 +54,8 @@
   "contract_material_items",
   "labor_tab",
   "contract_labor_items",
+  "subcontract_tab",
+  "contract_subcontract_items",
   "equipment_tab",
   "contract_equipment_items"
  ],
@@ -160,7 +162,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Contract Type",
-   "options": "Installing\nSupplying and installing\nEquipment",
+   "options": "Installing\nLabor\nSupplying and installing\nEquipment",
    "reqd": 1
   },
   {
@@ -370,17 +372,30 @@
    "options": "Contractor Contract Material Item"
   },
   {
-   "depends_on": "eval:[\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
+   "depends_on": "eval:[\"Labor\",\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
    "fieldname": "labor_tab",
    "fieldtype": "Tab Break",
    "label": "Labor"
   },
   {
-   "description": "Labor rows this Install Only contract carries, drawn from the Tender's Labor tab. A work item may carry more than one labor row.",
+   "description": "Labor rows this contract carries (Labor, Installing and Supply-and-Install contracts), drawn from the Tender's Labor tab. A work item may carry more than one labor row.",
    "fieldname": "contract_labor_items",
    "fieldtype": "Table",
    "label": "Labor Items",
    "options": "Contractor Contract Labor Item"
+  },
+  {
+   "depends_on": "eval:[\"Installing\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
+   "fieldname": "subcontract_tab",
+   "fieldtype": "Tab Break",
+   "label": "Subcontract"
+  },
+  {
+   "description": "Subcontract rows this contract carries (Installing and Supply-and-Install contracts), drawn from the Tender's Subcontract tab. A work item may carry more than one subcontract row.",
+   "fieldname": "contract_subcontract_items",
+   "fieldtype": "Table",
+   "label": "Subcontract Items",
+   "options": "Contractor Contract Subcontract Item"
   },
   {
    "depends_on": "eval:[\"Equipment\",\"Supplying and installing\"].includes(doc.type_subcontractor)",
@@ -400,7 +415,7 @@
  "is_submittable": 1,
  "links": [],
  "make_attachments_public": 1,
- "modified": "2026-10-13 14:00:00.000000",
+ "modified": "2026-10-18 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Subcontractor Contract",

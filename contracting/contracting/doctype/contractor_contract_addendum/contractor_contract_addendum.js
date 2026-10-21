@@ -101,11 +101,21 @@ frappe.ui.form.on('Contractor Contract Addendum Item', {
 	},
 
 	work_item(frm, cdt, cdn) {
-		if (locals[cdt][cdn].work_item) frappe.model.set_value(cdt, cdn, 'work_item_template', null);
+		const row = locals[cdt][cdn];
+		if (row.work_item) frappe.model.set_value(cdt, cdn, 'work_item_template', null);
 		frappe.model.set_value(cdt, cdn, 'labor_item', null);
 		frappe.model.set_value(cdt, cdn, 'equipment_item', null);
 		frappe.model.set_value(cdt, cdn, 'resource_item', null);
+		frappe.model.set_value(cdt, cdn, 'resource_lines', null);
 		frappe.model.set_value(cdt, cdn, 'available_qty', 0);
+		// 2026-10-20 (partial contracts): an added work item takes only the
+		// lines picked here - e.g. the subcontract line the base contract
+		// doesn't carry yet.
+		if (row.work_item && row.action === 'Add' && !row.base_contract_item) open_addendum_lines_dialog(frm, row);
+	},
+
+	pick_lines(frm, cdt, cdn) {
+		open_addendum_lines_dialog(frm, locals[cdt][cdn]);
 	},
 
 	labor_item(frm, cdt, cdn) {
@@ -138,7 +148,9 @@ function set_amount(cdt, cdn) {
 function refresh_available_qty(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	if (!row.work_item || !frm.doc.type_subcontractor) return;
-	if (frm.doc.type_subcontractor === 'Installing' && !row.labor_item) return;
+	// Single-resource types show availability only once a resource is
+	// named; Installing's Subcontract pool has no picker on addendum rows.
+	if (['Labor', 'Installing'].includes(frm.doc.type_subcontractor) && !row.labor_item) return;
 	if (frm.doc.type_subcontractor === 'Equipment' && !row.equipment_item) return;
 
 	// FR-37: the base contract's own commitment is real and still stands
@@ -279,5 +291,62 @@ function load_contract_conditions(frm) {
 				indicator: 'blue'
 			});
 		}
+	});
+}
+
+// 2026-10-20 (partial contracts): which of the work item's lines an Add row
+// takes onto the base contract - only those it doesn't carry yet are
+// offered. Leaving every box unticked takes them all (the old behaviour).
+const ADDENDUM_LINE_LABELS = {
+	contract_material_items: __('Material'),
+	contract_labor_items: __('Labor'),
+	contract_subcontract_items: __('Subcontract'),
+	contract_equipment_items: __('Equipment'),
+};
+
+function open_addendum_lines_dialog(frm, row) {
+	if (!frm.doc.subcontractor_contract || !row.work_item) return;
+	// Link validation re-fires the work_item event - one picker per row.
+	frm.__lines_dialog_open = frm.__lines_dialog_open || {};
+	if (frm.__lines_dialog_open[row.name]) return;
+	frm.__lines_dialog_open[row.name] = true;
+	const release = () => { frm.__lines_dialog_open[row.name] = false; };
+	frappe.call({
+		method: 'contracting.contracting.doctype.contractor_contract_addendum.contractor_contract_addendum.get_addable_lines',
+		args: { subcontractor_contract: frm.doc.subcontractor_contract, work_item: row.work_item },
+		callback(r) {
+			const lines = r.message || [];
+			if (!lines.length) {
+				release();
+				frappe.msgprint(__('Contract {0} already carries every line of this work item - use Update on its row instead.',
+					[frm.doc.subcontractor_contract]));
+				return;
+			}
+			const current = new Set(row.resource_lines ? JSON.parse(row.resource_lines) : []);
+			const dialog = new frappe.ui.Dialog({
+				title: __('Pick Lines'),
+				fields: [{
+					fieldname: 'lines', fieldtype: 'MultiCheck', columns: 1,
+					options: lines.map((line) => ({
+						label: `${ADDENDUM_LINE_LABELS[line.table] || line.table}: ${line.item}`
+							+ ` (${__('Available')} ${flt(line.available_qty)} / ${flt(line.budget)}, ${__('Per Unit')} ${flt(line.ratio)})`,
+						value: line.name,
+						checked: current.has(line.name),
+						disabled: flt(line.available_qty) <= 0,
+					})),
+				}],
+				primary_action_label: __('Set Lines'),
+				primary_action(values) {
+					const picked = values.lines || [];
+					frappe.model.set_value(row.doctype, row.name, 'resource_lines', picked.length ? JSON.stringify(picked) : null);
+					frappe.model.set_value(row.doctype, row.name, 'resource_item',
+						lines.filter((line) => picked.includes(line.name)).map((line) => line.item).join(', ') || null);
+					dialog.hide();
+				},
+			});
+			dialog.onhide = release;
+			dialog.show();
+		},
+		error: release,
 	});
 }

@@ -352,11 +352,13 @@ standard_queries = {
 	"Tender Item": "contracting.contracting.api.link.child_row_query",
 	"Tender BOQ Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Labor Item": "contracting.contracting.api.link.child_row_query",
+	"Tender Subcontract Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Equipment Item": "contracting.contracting.api.link.child_row_query",
 	"Tender Material Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Payment Condition": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Material Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Labor Item": "contracting.contracting.api.link.child_row_query",
+	"Contractor Contract Subcontract Item": "contracting.contracting.api.link.child_row_query",
 	"Contractor Contract Equipment Item": "contracting.contracting.api.link.child_row_query",
 }
 

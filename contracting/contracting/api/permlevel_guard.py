@@ -26,6 +26,7 @@ GUARDED_DOCTYPES = {
 	"Contractor Contract Item",
 	"Contractor Contract Material Item",
 	"Contractor Contract Labor Item",
+	"Contractor Contract Subcontract Item",
 	"Contractor Contract Equipment Item",
 }
 

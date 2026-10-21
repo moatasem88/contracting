@@ -85,7 +85,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Description",
-   "read_only": 1
+   "read_only_depends_on": "eval:doc.work_item",
+   "description": "Tender lines: the BOQ line's own description. Template lines: defaults to the template's description and can be edited."
   },
   {
    "fieldname": "uom",
@@ -147,7 +148,7 @@
    "in_list_view": 1,
    "label": "Unit Price",
    "read_only_depends_on": "eval:!doc.qty || doc.pricing_mode==\"Components\"",
-   "reqd": 1
+   "mandatory_depends_on": "eval:doc.pricing_mode!=\"Components\""
   },
   {
    "columns": 1,
@@ -221,7 +222,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-10-13 16:00:00.000000",
+ "modified": "2026-10-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Contractor Contract Item",

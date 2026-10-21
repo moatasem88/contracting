@@ -111,22 +111,27 @@ class TestSubcontractorContract(FrappeTestCase):
 		material_row = tender.material_items[0]  # qty_per_unit = 2
 
 		contract = make_draft_contract(project, "Supplying and installing")
-		# Claims 6 of the item's 10 units, but declares 16 units of
-		# material - 4 more than its own 6 x 2 = 12 proportional share
-		# (e.g. a waste/buffer allowance), eating into the shared budget.
-		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 6, "unit_price": 100})
+		# Claims 8 of the item's 10 units with their full 8 x 2 = 16 units of
+		# material (2026-10-20: a component can't exceed its line's share, so
+		# the old 6-unit line with a 16-unit buffer is no longer allowed).
+		# Priced within the material line's own budget (2 x 30 per unit): the
+		# contract carries only that line (2026-10-20 per-line reference).
+		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 8, "unit_price": 60})
 		contract.append("contract_material_items", {
 			"work_item": boq_row.name, "material_item": material_row.name, "qty": 16,
 		})
 		contract.insert(ignore_permissions=True)
 		submit_contract(contract)
 
-		# Item-quantity pool alone would suggest 10 - 6 = 4 remain. But the
-		# material row's full budget is 2 x 10 = 20, of which 16 is already
-		# used - only 4 material units (2 item-equivalent units) are left,
-		# which is the tighter, correctly-binding constraint.
-		available = allocation.get_supply_install_availability(boq_row.name)
-		self.assertAlmostEqual(available, 2.0, delta=1e-6)
+		# 2026-10-20 (partial contracts): the material row's budget is
+		# 2 x 10 = 20, of which 16 is used - 4 material units (2 work-item
+		# units) are left on *that line*. The work item itself stays offered
+		# at 10 on its untouched labor / equipment lines.
+		work_item_row = allocation.get_work_item(boq_row.name)
+		lines = {line.name: line for line in allocation.get_line_availability("Supplying and installing", work_item_row)}
+		self.assertAlmostEqual(lines[material_row.name].available_qty, 4.0, delta=1e-6)
+		self.assertAlmostEqual(lines[material_row.name].available_units, 2.0, delta=1e-6)
+		self.assertAlmostEqual(allocation.get_supply_install_availability(boq_row.name), 10.0, delta=1e-6)
 
 	def test_payment_conditions_default_and_override_groups(self):
 		"""FR-22/23: the contract-wide default group and each work item's
@@ -163,7 +168,7 @@ class TestSubcontractorContract(FrappeTestCase):
 		material_row = tender.material_items[0]
 
 		contract = make_draft_contract(project, "Supplying and installing")
-		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 5, "unit_price": 100})
+		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 5, "unit_price": 10})
 		contract.append("contract_material_items", {
 			"work_item": boq_row.name, "material_item": material_row.name, "qty": 5,
 		})
@@ -177,13 +182,13 @@ class TestSubcontractorContract(FrappeTestCase):
 	# -- resource propagation (2026-08-30 BRD) -----------------------------
 
 	def test_propagated_rows_installing_only_labor(self):
-		"""FR-04/FR-06: Installing only ever propagates into the Labor table."""
+		"""FR-04/FR-06: a Labor contract only ever propagates into the Labor table (Installing until 2026-10-18)."""
 		project, tender = make_resource_tender_and_project("prop_installing", qty=10)
 		boq_row = tender.boq_items[0]
 		labor_row = tender.labor_items[0]  # qty_per_unit = 1
 
 		work_item_row = allocation.get_work_item(boq_row.name)
-		result = allocation._propagated_resource_rows(work_item_row, 6, "Installing")
+		result = allocation._propagated_resource_rows(work_item_row, 6, "Labor")
 
 		self.assertEqual(len(result.get("contract_labor_items", [])), 1)
 		self.assertNotIn("contract_material_items", result)
@@ -235,7 +240,7 @@ class TestSubcontractorContract(FrappeTestCase):
 		boq_row = tender.boq_items[0]
 
 		work_item_row = allocation.get_work_item(boq_row.name)
-		result = allocation._propagated_resource_rows(work_item_row, 5, "Installing")
+		result = allocation._propagated_resource_rows(work_item_row, 5, "Labor")
 
 		# Only the original qty_per_unit=1 labor row propagates - the
 		# zero-ratio one is skipped, not included at qty=0.
@@ -264,10 +269,10 @@ class TestSubcontractorContract(FrappeTestCase):
 		work_item_row = allocation.get_work_item(boq_row.name)
 		# The labor row's own budget is qty_per_unit(1) x item qty(10) = 10;
 		# ask for far more than that - propagation still returns it in full.
-		result = allocation._propagated_resource_rows(work_item_row, 50, "Installing")
+		result = allocation._propagated_resource_rows(work_item_row, 50, "Labor")
 		self.assertAlmostEqual(result["contract_labor_items"][0]["qty"], 50.0, delta=1e-6)
 
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 10, "unit_price": 100})
 		contract.append("contract_labor_items", result["contract_labor_items"][0])
 		with self.assertRaises(frappe.ValidationError):
@@ -275,7 +280,7 @@ class TestSubcontractorContract(FrappeTestCase):
 
 	def test_item_level_availability_for_installing_without_named_resource(self):
 		"""2026-08-30 fix: get_row_availability must not hard-return 0 for
-		Installing/Equipment when no specific resource is named yet (the
+		Labor/Equipment when no specific resource is named yet (the
 		unified dialog, and an Addendum item post FR-16, both only know the
 		work item at this point) - it falls back to the item's own
 		remaining quantity instead."""
@@ -283,7 +288,7 @@ class TestSubcontractorContract(FrappeTestCase):
 		boq_row = tender.boq_items[0]
 
 		self.assertAlmostEqual(
-			allocation.get_row_availability("Installing", boq_row.name), 10.0, delta=1e-6,
+			allocation.get_row_availability("Labor", boq_row.name), 10.0, delta=1e-6,
 		)
 		self.assertAlmostEqual(
 			allocation.get_row_availability("Equipment", boq_row.name), 10.0, delta=1e-6,
@@ -297,7 +302,7 @@ class TestSubcontractorContract(FrappeTestCase):
 		submit_contract(sai_contract)
 
 		self.assertAlmostEqual(
-			allocation.get_row_availability("Installing", boq_row.name), 6.0, delta=1e-6,
+			allocation.get_row_availability("Labor", boq_row.name), 6.0, delta=1e-6,
 		)
 
 	# -- price ceiling / approval-chain rebuild (2026-09-27 BRD) -----------
@@ -388,8 +393,9 @@ class TestSubcontractorContract(FrappeTestCase):
 			contract.insert(ignore_permissions=True)
 
 	def test_components_to_total_switch_retains_component_rates(self):
-		"""TC-07: switching a row back to Total leaves the previously
-		entered component rate/amount values in place, just inert."""
+		"""TC-07: switching a row back to Total keeps the previously entered
+		component rates. 2026-10-20: they are no longer inert - they must
+		still add up to the line total."""
 		project, tender = make_resource_tender_and_project("components_switch", qty=10)
 		boq_row = tender.boq_items[0]
 		labor_row = tender.labor_items[0]
@@ -405,10 +411,14 @@ class TestSubcontractorContract(FrappeTestCase):
 
 		contract.contracted_items[0].pricing_mode = "Total"
 		contract.contracted_items[0].unit_price = 5
-		contract.save(ignore_permissions=True)
+		with self.assertRaisesRegex(frappe.ValidationError, "add up to the line total"):
+			contract.save(ignore_permissions=True)
+		contract.modified = frappe.db.get_value(contract.doctype, contract.name, "modified")  # bumped by the failed save
 
+		contract.contracted_items[0].unit_price = 3
+		contract.save(ignore_permissions=True)
 		self.assertEqual(contract.contract_labor_items[0].rate, 3)
-		self.assertAlmostEqual(contract.contracted_items[0].unit_price, 5.0, delta=1e-6)
+		self.assertAlmostEqual(contract.contracted_items[0].unit_price, 3.0, delta=1e-6)
 
 	def test_ceo_approval_fires_on_first_250k_work_item(self):
 		"""TC-08: a work item reaching 250,000+ that has never been on
@@ -604,7 +614,7 @@ class TestFollowsTender(FrappeTestCase):
 		"""TC-01/02: default 1; a project with no Tender saves (no throw)
 		with follows_tender forced to 0."""
 		self.assertEqual(frappe.get_meta("Subcontractor Contract").get_field("follows_tender").default, "1")
-		contract = make_draft_contract(make_no_tender_project("tc02"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("tc02"), "Labor")
 		contract.insert(ignore_permissions=True)
 		self.assertEqual(contract.follows_tender, 0)
 		self.assertEqual(contract.project_tenders, [])
@@ -613,7 +623,10 @@ class TestFollowsTender(FrappeTestCase):
 		"""TC-03: template resources propagate into Material and Labor;
 		nothing is red on a no-Tender project. Rates are *not* copied from
 		the template (2026-10-13: the contracts department must not see
-		template/Tender rates) - only the permlevel-1 tender_rate carries it."""
+		template/Tender rates) - only the permlevel-1 tender_rate carries it.
+		2026-10-20: a Total-priced line's amount (5 x 100) is split over its
+		components in the template's proportions (labor 1 x 50 : material
+		2 x 30 per unit)."""
 		contract = make_draft_contract(make_no_tender_project("tc03"), "Supplying and installing")
 		add_template_line(contract, self.template, 5)
 		contract.insert(ignore_permissions=True)
@@ -622,15 +635,17 @@ class TestFollowsTender(FrappeTestCase):
 		self.assertEqual((line.work_item_template, line.follows_tender), (self.template, 0))
 		self.assertEqual(line.description, "_SC FT Template description")
 		labor, material = contract.contract_labor_items[0], contract.contract_material_items[0]
-		self.assertEqual((flt(labor.qty), flt(labor.rate), labor.source), (5.0, 0.0, "Template"))
-		self.assertEqual((flt(material.qty), flt(material.rate), material.source), (10.0, 0.0, "Template"))
+		self.assertEqual((flt(labor.qty), labor.source), (5.0, "Template"))
+		self.assertEqual((flt(material.qty), material.source), (10.0, "Template"))
+		self.assertAlmostEqual(flt(labor.qty) * flt(labor.rate), 500 * 50 / 110, places=6)
+		self.assertAlmostEqual(flt(material.qty) * flt(material.rate), 500 * 60 / 110, places=6)
 		self.assertEqual((flt(labor.tender_rate), flt(material.tender_rate)), (50.0, 30.0))
 		self.assertEqual(contract.has_out_of_tender_items, 0)
 		self.assertFalse(any(r.out_of_tender_scope for r in contract.contract_labor_items + contract.contract_material_items))
 
 	def test_template_line_installing_propagates_labor_only(self):
 		"""TC-04."""
-		contract = make_draft_contract(make_no_tender_project("tc04"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("tc04"), "Labor")
 		add_template_line(contract, self.template, 5)
 		contract.insert(ignore_permissions=True)
 		self.assertEqual(len(contract.contract_labor_items), 1)
@@ -639,7 +654,7 @@ class TestFollowsTender(FrappeTestCase):
 
 	def test_duplicate_template_rejected(self):
 		"""TC-06."""
-		contract = make_draft_contract(make_no_tender_project("tc06"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("tc06"), "Labor")
 		add_template_line(contract, self.template, 5)
 		contract.insert(ignore_permissions=True)
 		contract.append("contracted_items", {"work_item_template": self.template, "qty": 1, "unit_price": 1})
@@ -656,7 +671,7 @@ class TestFollowsTender(FrappeTestCase):
 
 		contract.append("contract_material_items", {
 			"work_item_template": self.template, "item": ensure_stock_item("_Test SC Stock Material"),
-			"qty": 1, "rate": 5,
+			"qty": 1,
 		})
 		contract.save(ignore_permissions=True)
 		extra = contract.contract_material_items[-1]
@@ -671,7 +686,7 @@ class TestFollowsTender(FrappeTestCase):
 	def test_extra_row_on_non_line_rejected_not_pruned(self):
 		"""FR-08: an extra row pointing at a template that isn't a line is an
 		error, not a silent prune."""
-		contract = make_draft_contract(make_no_tender_project("nonline"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("nonline"), "Labor")
 		add_template_line(contract, self.template, 1)
 		contract.insert(ignore_permissions=True)
 		other = make_v2_template("_SC FT Other").name
@@ -685,7 +700,7 @@ class TestFollowsTender(FrappeTestCase):
 		"""TC-09: Tender project, switch unticked, template line -> red,
 		headline flag, CEO."""
 		project, tender = make_resource_tender_and_project("ft_tc09")
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		contract.follows_tender = 0
 		add_template_line(contract, self.template, 2)
 		contract.insert(ignore_permissions=True)
@@ -697,7 +712,7 @@ class TestFollowsTender(FrappeTestCase):
 	def test_switch_locked_while_lines_exist(self):
 		"""TC-10."""
 		project, tender = make_resource_tender_and_project("ft_tc10")
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		add_tender_line(contract, tender.boq_items[0], 1, 1)
 		contract.insert(ignore_permissions=True)
 		contract.follows_tender = 0
@@ -711,9 +726,10 @@ class TestFollowsTender(FrappeTestCase):
 		figures filled for Tender and template rows, blank on extra rows."""
 		project, tender = make_resource_tender_and_project("ft_tc11")
 		boq_row = tender.boq_items[0]
-		unit_cost = allocation.get_work_item(boq_row.name).boq_direct_cost / boq_row.original_quantity
+		# 2026-10-18 BRD FR-21: a Labor line's reference is its labor layer.
+		unit_cost = allocation.get_work_item(boq_row.name).labor_cost / boq_row.original_quantity
 
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		add_tender_line(contract, boq_row, 1, unit_cost)
 		add_template_line(contract, self.template, 2)
 		contract.insert(ignore_permissions=True)
@@ -721,26 +737,37 @@ class TestFollowsTender(FrappeTestCase):
 		w, t = contract.contracted_items
 		self.assertEqual((w.out_of_tender_scope, t.out_of_tender_scope), (0, 1))
 		self.assertAlmostEqual(flt(w.tender_unit_cost), unit_cost, delta=1e-6)
-		self.assertAlmostEqual(flt(t.tender_unit_cost), 110.0, delta=1e-6)
+		self.assertAlmostEqual(flt(t.tender_unit_cost), 50.0, delta=1e-6)  # template labor 1 x 50
 		tender_row = next(r for r in contract.contract_labor_items if r.source == "Tender")
 		template_row = next(r for r in contract.contract_labor_items if r.source == "Template")
 		self.assertEqual((tender_row.out_of_tender_scope, template_row.out_of_tender_scope), (0, 1))
 		self.assertAlmostEqual(flt(tender_row.tender_rate), 50.0, delta=1e-6)
 		self.assertAlmostEqual(flt(template_row.tender_rate), 50.0, delta=1e-6)
 
+		# 2026-10-20: W's components must still add up to its total - the
+		# extra row's 1 comes out of the Tender row's share.
 		contract.append("contract_labor_items", {
 			"work_item": boq_row.name, "item": ensure_resource_item("_Test SC Labor"), "qty": 1, "rate": 1,
 		})
+		next(r for r in contract.contract_labor_items if r.source == "Tender").rate = unit_cost - 1
 		contract.save(ignore_permissions=True)
 		extra = contract.contract_labor_items[-1]
 		self.assertEqual((extra.source, extra.out_of_tender_scope, extra.tender_rate), ("Extra", 1, None))
 		self.assertEqual(contract.contracted_items[0].out_of_tender_scope, 0)
 
-		tender_row = next(r for r in contract.contract_labor_items if r.source == "Tender")
-		tender_row.rate = 55
+		# A component above its Tender rate is blocked like the line total
+		# (2026-10-20), and goes red once delegated to Cost Control.
+		w = contract.contracted_items[0]
+		next(r for r in contract.contract_labor_items if r.source == "Tender").rate = 55
+		w.unit_price = 56
+		with self.assertRaisesRegex(frappe.ValidationError, "approved ceiling"):
+			contract.save(ignore_permissions=True)
+		contract.modified = frappe.db.get_value(contract.doctype, contract.name, "modified")  # bumped by the failed save
+		contract.price_exception_acknowledged = 1
 		contract.save(ignore_permissions=True)
 		self.assertEqual(next(r for r in contract.contract_labor_items if r.source == "Tender").out_of_tender_scope, 1)
 		next(r for r in contract.contract_labor_items if r.source == "Tender").rate = 50
+		contract.contracted_items[0].unit_price = 51
 		contract.save(ignore_permissions=True)
 		self.assertEqual(next(r for r in contract.contract_labor_items if r.source == "Tender").out_of_tender_scope, 0)
 
@@ -749,7 +776,7 @@ class TestFollowsTender(FrappeTestCase):
 		project, tender = make_resource_tender_and_project("ft_tc14")
 		boq_row = tender.boq_items[0]
 		unit_cost = allocation.get_work_item(boq_row.name).boq_direct_cost / boq_row.original_quantity
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		add_tender_line(contract, boq_row, 1, unit_cost * 1.2)
 		with self.assertRaisesRegex(frappe.ValidationError, "Delegate to Cost Control"):
 			contract.insert(ignore_permissions=True)
@@ -776,7 +803,7 @@ class TestFollowsTender(FrappeTestCase):
 	def test_template_threshold_applies_per_template(self):
 		"""OQ-4: a template line >= 250,000 on a no-Tender project escalates
 		through the per-line threshold even though nothing is red."""
-		contract = make_draft_contract(make_no_tender_project("oq4"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("oq4"), "Labor")
 		add_template_line(contract, self.template, 1000, unit_price=300)
 		contract.insert(ignore_permissions=True)
 		self.assertEqual(contract.has_out_of_tender_items, 0)
@@ -786,7 +813,7 @@ class TestFollowsTender(FrappeTestCase):
 		"""Regression (None == None): two template lines in Components mode
 		each price from their own rows only."""
 		other = make_v2_template("_SC FT Components B", labor_rate=10, material_rate=1).name
-		contract = make_draft_contract(make_no_tender_project("comp"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("comp"), "Labor")
 		add_template_line(contract, self.template, 1, pricing_mode="Components")
 		add_template_line(contract, other, 1, pricing_mode="Components")
 		for row in contract.contract_labor_items:
@@ -798,7 +825,7 @@ class TestFollowsTender(FrappeTestCase):
 	def test_deleting_one_template_line_prunes_only_its_rows(self):
 		"""Regression (None == None) for FR-20 cascade-delete."""
 		other = make_v2_template("_SC FT Prune B").name
-		contract = make_draft_contract(make_no_tender_project("prune"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("prune"), "Labor")
 		add_template_line(contract, self.template, 1)
 		add_template_line(contract, other, 1)
 		contract.insert(ignore_permissions=True)
@@ -815,8 +842,8 @@ class TestFollowsTender(FrappeTestCase):
 
 		project, tender = make_resource_tender_and_project("ft_pc")
 		boq_row = tender.boq_items[0]
-		unit_cost = allocation.get_work_item(boq_row.name).boq_direct_cost / boq_row.original_quantity
-		contract = make_draft_contract(project, "Installing")
+		unit_cost = allocation.get_work_item(boq_row.name).labor_cost / boq_row.original_quantity
+		contract = make_draft_contract(project, "Labor")
 		add_tender_line(contract, boq_row, 1, unit_cost)
 		add_template_line(contract, self.template, 1)
 		contract.append("payment_conditions", {"condition": "Default", "percent": 100})
@@ -839,7 +866,7 @@ class TestFollowsTender(FrappeTestCase):
 		from contracting.contracting.api import permlevel_guard
 
 		project, tender = make_resource_tender_and_project("ft_tc21")
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		add_tender_line(contract, tender.boq_items[0], 1, 1)
 		contract.insert(ignore_permissions=True)
 
@@ -903,7 +930,9 @@ class TestFollowsTender(FrappeTestCase):
 		# back per class, not per test.
 		template = make_v2_template("_SC FT Frozen").name
 		project, tender = make_resource_tender_and_project("ft_tc26")
-		contract = make_draft_contract(project, "Installing")
+		# Supply and Install: the type whose template reference is the
+		# template's total_cost_per_unit, which this test then tampers with.
+		contract = make_draft_contract(project, "Supplying and installing")
 		add_template_line(contract, template, 1)
 		contract.insert(ignore_permissions=True)
 		frappe.db.set_value("Subcontractor Contract", contract.name, "workflow_state", "Pending Cost Control Approval")
@@ -917,7 +946,7 @@ class TestFollowsTender(FrappeTestCase):
 		"""FR-16: _resolve_work_item_template reads the line's own template."""
 		from contracting.contracting.doctype.contractor_invoice.contractor_invoice import _resolve_work_item_template
 
-		contract = make_draft_contract(make_no_tender_project("ci"), "Installing")
+		contract = make_draft_contract(make_no_tender_project("ci"), "Labor")
 		add_template_line(contract, self.template, 1)
 		contract.insert(ignore_permissions=True)
 		self.assertEqual(_resolve_work_item_template(contract.contracted_items[0].name), self.template)
@@ -1036,3 +1065,82 @@ class TestApprovalChainOverhaul(FrappeTestCase):
 		contract.insert(ignore_permissions=True)
 		self.assertEqual(contract.contracted_items[0].boq_work_item_template, template.name)
 		self.assertFalse(contract.contracted_items[0].work_item_template)
+
+
+def _resource_qty(contract, fieldname):
+	return sorted(flt(r.qty) for r in contract.get(fieldname))
+
+
+class TestServerSideResourcePropagation(FrappeTestCase):
+	"""External app BRD (2026-10-20): a line saved through the API - with no
+	client-side propagate_resources - gets its resources on insert and has
+	them rescaled on a qty correction, the same as the form does."""
+
+	def test_tender_line_propagates_and_rescales_on_server(self):
+		project, tender = make_resource_tender_and_project("srv_rescale", qty=10)
+		contract = make_draft_contract(project, "Supplying and installing")
+		# No resource rows appended: what an API caller sends.
+		contract.append("contracted_items", {"work_item": tender.boq_items[0].name, "qty": 10, "unit_price": 100})
+		contract.insert(ignore_permissions=True)
+
+		self.assertEqual(contract.contracted_items[0].resources_propagated, 1)
+		self.assertEqual(_resource_qty(contract, "contract_labor_items"), [10])
+		self.assertEqual(_resource_qty(contract, "contract_material_items"), [20])
+
+		contract.contracted_items[0].qty = 8
+		contract.save(ignore_permissions=True)
+		self.assertEqual(_resource_qty(contract, "contract_labor_items"), [8])
+		self.assertEqual(_resource_qty(contract, "contract_equipment_items"), [8])
+		self.assertEqual(_resource_qty(contract, "contract_material_items"), [16])
+
+	def test_hand_edited_row_is_not_rescaled(self):
+		project, tender = make_resource_tender_and_project("srv_hand_edit", qty=10)
+		contract = make_draft_contract(project, "Supplying and installing")
+		contract.append("contracted_items", {"work_item": tender.boq_items[0].name, "qty": 10, "unit_price": 100})
+		contract.insert(ignore_permissions=True)
+
+		labor = contract.contract_labor_items[0]
+		labor.auto_propagated = 0
+		# 2026-10-20: lowered by hand - a component may never exceed its line's
+		# share (1 x 6 here), only go below it.
+		labor.qty = 5
+		contract.contracted_items[0].qty = 6
+		# Total pricing: components must still add up to the line (6 x 100) -
+		# labor 5 x 42 + equipment 6 x 25 + material 12 x 20 = 600.
+		labor.rate = 42
+		contract.contract_equipment_items[0].rate = 25
+		contract.contract_material_items[0].rate = 20
+		contract.save(ignore_permissions=True)
+
+		self.assertEqual(_resource_qty(contract, "contract_labor_items"), [5])
+		self.assertEqual(_resource_qty(contract, "contract_material_items"), [12])
+
+	def test_unchanged_qty_leaves_rows_alone(self):
+		project, tender = make_resource_tender_and_project("srv_noop", qty=10)
+		contract = make_draft_contract(project, "Supplying and installing")
+		contract.append("contracted_items", {"work_item": tender.boq_items[0].name, "qty": 10, "unit_price": 100})
+		contract.insert(ignore_permissions=True)
+		contract.contract_labor_items[0].qty = 9  # still auto_propagated, but the line itself didn't move
+		# labor 9 x 40 + equipment 10 x 24 + material 20 x 20 = 1000 = the line total.
+		contract.contract_labor_items[0].rate = 40
+		contract.contract_equipment_items[0].rate = 24
+		contract.contract_material_items[0].rate = 20
+		contract.save(ignore_permissions=True)
+		self.assertEqual(_resource_qty(contract, "contract_labor_items"), [9])
+
+	def test_template_line_propagates_and_rescales_on_server(self):
+		template = make_v2_template("_SC Srv Template").name
+		contract = make_draft_contract(make_no_tender_project("srv_tpl"), "Supplying and installing")
+		contract.append("contracted_items", {"work_item_template": template, "qty": 3, "unit_price": 100})
+		contract.insert(ignore_permissions=True)
+
+		self.assertEqual(contract.contracted_items[0].resources_propagated, 1)
+		self.assertEqual(_resource_qty(contract, "contract_labor_items"), [3])
+		self.assertEqual(_resource_qty(contract, "contract_material_items"), [6])
+
+		contract.contracted_items[0].qty = 5
+		contract.save(ignore_permissions=True)
+		self.assertEqual(_resource_qty(contract, "contract_labor_items"), [5])
+		material = contract.contract_material_items[0]
+		self.assertEqual(flt(material.qty), 10)
+		self.assertAlmostEqual(flt(material.amount), flt(material.qty) * flt(material.rate))

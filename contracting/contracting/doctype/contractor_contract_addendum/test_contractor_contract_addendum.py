@@ -17,14 +17,26 @@ from contracting.contracting.doctype.subcontractor_contract.test_subcontractor_c
 from contracting.contracting.utils import allocation
 
 
-def make_installing_contract(suffix, item_qty=10, labor_qty=8, unit_price=100):
-	"""A submitted Install Only contract with one Labor row - the base an
-	Addendum (FR-34-46) amends."""
+# 2026-10-18 BRD: a Labor contract's price ceiling is the work item's labor
+# cost per unit - 1 x 50 in make_resource_tender_and_project - so base
+# contracts here are priced at it.
+BASE_UNIT_PRICE = 50
+
+
+def make_installing_contract(suffix, item_qty=10, labor_qty=8, unit_price=None):
+	"""A submitted Labor contract (Install Only until 2026-10-18) with one
+	Labor row - the base an Addendum (FR-34-46) amends.
+
+	2026-10-20: a Total-priced line's amount is split over its components,
+	so with fewer labor units than item units the labor rate is the line
+	amount / labor_qty - the default price keeps it at the Tender rate."""
+	if unit_price is None:
+		unit_price = BASE_UNIT_PRICE * labor_qty / item_qty
 	project, tender = make_resource_tender_and_project(suffix, qty=item_qty)
 	boq_row = tender.boq_items[0]
 	labor_row = tender.labor_items[0]
 
-	contract = make_draft_contract(project, "Installing")
+	contract = make_draft_contract(project, "Labor")
 	contract.append("contracted_items", {"work_item": boq_row.name, "qty": item_qty, "unit_price": unit_price})
 	contract.append("contract_labor_items", {
 		"work_item": boq_row.name, "labor_item": labor_row.name, "qty": labor_qty,
@@ -75,7 +87,7 @@ class TestContractorContractAddendum(FrappeTestCase):
 		})
 		addendum.insert(ignore_permissions=True)
 		self.assertEqual([r.tender for r in addendum.project_tenders], [tender.name])
-		self.assertEqual(addendum.type_subcontractor, "Installing")
+		self.assertEqual(addendum.type_subcontractor, "Labor")
 		self.assertAlmostEqual(addendum.grand_total_delta, 999.0, delta=1e-6)
 
 		approve_addendum(addendum)
@@ -129,8 +141,10 @@ class TestContractorContractAddendum(FrappeTestCase):
 		tender.save(ignore_permissions=True)
 		boq_row = tender.boq_items[0]
 
-		contract = make_draft_contract(project, "Installing")
-		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 10, "unit_price": 100})
+		contract = make_draft_contract(project, "Labor")
+		# qty 5: the base contract now really commits both labor lines (a new
+		# Tender line takes all its lines, 2026-10-20), so leave room for +3.
+		contract.append("contracted_items", {"work_item": boq_row.name, "qty": 5, "unit_price": BASE_UNIT_PRICE})
 		contract.insert(ignore_permissions=True)
 		submit_contract(contract)
 		before_labor = len(contract.contract_labor_items)
@@ -225,7 +239,7 @@ class TestAddendumTemplateLines(FrappeTestCase):
 
 		template = make_v2_template("_SC FT Addendum").name
 		project, tender = make_resource_tender_and_project("addendum_tpl", qty=10)
-		contract = make_draft_contract(project, "Installing")
+		contract = make_draft_contract(project, "Labor")
 		add_template_line(contract, template, 2)
 		contract.insert(ignore_permissions=True)
 		submit_contract(contract)
@@ -264,8 +278,8 @@ def make_amendable_contract(suffix, qty=5, with_conditions=False):
 	rescale."""
 	project, tender = make_resource_tender_and_project(suffix, qty=10)
 	boq_row = tender.boq_items[0]
-	contract = make_draft_contract(project, "Installing")
-	add_tender_line(contract, boq_row, qty, 100)
+	contract = make_draft_contract(project, "Labor")
+	add_tender_line(contract, boq_row, qty, BASE_UNIT_PRICE)
 	if with_conditions:
 		contract.append("payment_conditions", {"condition": "Advance", "percent": 100})
 	contract.insert(ignore_permissions=True)
@@ -295,7 +309,7 @@ class TestAddendumAmendments(FrappeTestCase):
 		rows = get_contract_items_for_addendum(contract.name)
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["base_contract_item"], contract.contracted_items[0].name)
-		self.assertEqual((rows[0]["old_qty"], rows[0]["old_unit_price"], rows[0]["invoiced_qty"]), (5, 100, 0))
+		self.assertEqual((rows[0]["old_qty"], rows[0]["old_unit_price"], rows[0]["invoiced_qty"]), (5, BASE_UNIT_PRICE, 0))
 		self.assertEqual(get_contract_items_for_addendum(""), [])
 
 	def test_update_changes_row_rescales_resources_and_stamps_effective_date(self):
@@ -308,7 +322,7 @@ class TestAddendumAmendments(FrappeTestCase):
 		])
 		addendum.insert(ignore_permissions=True)
 		self.assertEqual((addendum.addendum_items[0].old_qty, addendum.addendum_items[0].qty_delta), (5, 3))
-		self.assertAlmostEqual(addendum.grand_total_delta, 8 * 120 - 5 * 100, places=6)
+		self.assertAlmostEqual(addendum.grand_total_delta, 8 * 120 - 5 * BASE_UNIT_PRICE, places=6)
 
 		contract.reload()
 		self.assertEqual(contract.contracted_items[0].qty, 5)  # untouched until approval
@@ -332,7 +346,8 @@ class TestAddendumAmendments(FrappeTestCase):
 	def test_update_without_change_blocked(self):
 		contract, boq_row = make_amendable_contract("add_nochange")
 		addendum = make_addendum(contract, [
-			{"base_contract_item": contract.contracted_items[0].name, "action": "Update", "new_qty": 5, "new_unit_price": 100},
+			{"base_contract_item": contract.contracted_items[0].name, "action": "Update", "new_qty": 5,
+			 "new_unit_price": BASE_UNIT_PRICE},
 		])
 		self.assertRaises(frappe.ValidationError, addendum.insert, ignore_permissions=True)
 
@@ -342,7 +357,7 @@ class TestAddendumAmendments(FrappeTestCase):
 			{"base_contract_item": contract.contracted_items[0].name, "action": "Delete"},
 		])
 		addendum.insert(ignore_permissions=True)
-		self.assertAlmostEqual(addendum.grand_total_delta, -500.0, places=6)
+		self.assertAlmostEqual(addendum.grand_total_delta, -5 * BASE_UNIT_PRICE, places=6)
 
 		approve_addendum(addendum)
 		contract.reload()

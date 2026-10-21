@@ -507,7 +507,9 @@ frappe.ui.form.on('Contractor Invoice Condition Progress', {
 // Payment Conditions keeps the plain Items grid.
 // ---------------------------------------------------------------------------
 
-const TREE_ENTRY_FIELDS = ['cumulative_qty_complete', 'this_period_qty', 'percent_complete'];
+// 2026-10-20: This Period Qty is no longer entered in the tree (Contract Qty
+// shows there instead); it is still derived from Cumulative Qty / % Complete.
+const TREE_ENTRY_FIELDS = ['cumulative_qty_complete', 'percent_complete'];
 const TREE_COMPUTED_FIELDS = ['this_period_amount', 'retention_amount', 'net_amount'];
 const TREE_HIDE_CLASS = 'contracting-progress-grid-hidden';
 
@@ -584,6 +586,27 @@ function render_progress_tree(frm) {
 		return;
 	}
 
+	// Template name + description per line (2026-10-20), fetched once.
+	frm.__tree_titles = frm.__tree_titles || {};
+	const missing = [...new Set((frm.doc.items || []).map((item) => item.contract_item)
+		.filter((name) => name && !(name in frm.__tree_titles)))];
+	if (missing.length && !frm.__tree_titles_loading) {
+		frm.__tree_titles_loading = true;
+		frappe.call({
+			method: 'contracting.contracting.doctype.contractor_invoice.contractor_invoice.get_tree_titles',
+			args: {contract_items: missing},
+			callback(r) {
+				Object.assign(frm.__tree_titles, r.message || {});
+			},
+			always() {
+				// Mark every requested line, so a failed call can't refetch forever.
+				missing.forEach((name) => { if (!(name in frm.__tree_titles)) frm.__tree_titles[name] = {}; });
+				frm.__tree_titles_loading = false;
+				render_progress_tree(frm);
+			},
+		});
+	}
+
 	frm.__tree_collapsed = frm.__tree_collapsed || {};
 	const editable = !!(frm.fields_dict.condition_progress.grid.is_editable());
 	const search = (frm.__tree_search || '').toLowerCase();
@@ -598,13 +621,17 @@ function render_progress_tree(frm) {
 		</div>
 		<div class="table-responsive"><table class="table table-bordered contracting-progress-tree"><thead><tr>
 			<th>${__('Work Item / Payment Condition')}</th><th class="num">${__('Cumulative Qty')}</th>
-			<th class="num">${__('This Period Qty')}</th><th class="num">${__('% Complete')}</th>
+			<th class="num">${__('Contract Qty')}</th><th class="num">${__('% Complete')}</th>
 			<th class="num">${__('This Period')}</th><th class="num">${__('Retention')}</th><th class="num">${__('Net')}</th>
 		</tr></thead><tbody>`;
 
 	parents.forEach(parent => {
 		const kids = children[parent.contract_item];
-		const parent_title = parent.description || tree_title('Contractor Contract Item', parent.contract_item);
+		const titles = frm.__tree_titles[parent.contract_item] || {};
+		const parent_description = parent.description || titles.description
+			|| tree_title('Contractor Contract Item', parent.contract_item);
+		// Template name on top, the item's description under it (2026-10-20).
+		const parent_title = [titles.template, parent_description].filter(Boolean).join(' ');
 		const kid_matches = kids.filter(kid => !search
 			|| (kid.condition_label || '').toLowerCase().includes(search)
 			|| (kid.description || '').toLowerCase().includes(search));
@@ -616,8 +643,9 @@ function render_progress_tree(frm) {
 		const shown_kids = parent_matches && !kid_matches.length ? kids : kid_matches;
 		const roll = tree_rollup(kids);
 		html += `<tr class="tree-parent" data-item="${esc(parent.contract_item)}">
-			<td><a class="tree-toggle" style="cursor:pointer">${collapsed ? '▸' : '▾'}</a> ${esc(parent_title)}</td>
-			<td></td><td></td><td class="num">${flt(roll.percent_complete).toFixed(2)}%</td>
+			<td><a class="tree-toggle" style="cursor:pointer">${collapsed ? '▸' : '▾'}</a>
+				${titles.template ? `${esc(titles.template)}<div class="text-muted small" style="font-weight:normal; padding-left:16px;">${esc(parent_description)}</div>` : esc(parent_description)}</td>
+			<td></td><td class="num">${flt(parent.qty_allocated)}</td><td class="num">${flt(roll.percent_complete).toFixed(2)}%</td>
 			<td class="num">${tree_money(roll.this_period_amount)}</td>
 			<td class="num">${tree_money(roll.retention_amount)}</td>
 			<td class="num">${tree_money(roll.net_amount)}</td></tr>`;
@@ -630,7 +658,7 @@ function render_progress_tree(frm) {
 				<td>${esc(kid.condition_label || tree_title('Contractor Contract Payment Condition', kid.payment_condition))}
 					<span class="text-muted">(${flt(kid.condition_percent)}%)</span></td>
 				<td class="num">${input('cumulative_qty_complete')}</td>
-				<td class="num">${input('this_period_qty')}</td>
+				<td class="num">${flt(kid.qty_allocated)}</td>
 				<td class="num">${input('percent_complete')}</td>
 				<td class="num" data-cell="this_period_amount">${tree_money(kid.this_period_amount)}</td>
 				<td class="num" data-cell="retention_amount">${tree_money(kid.retention_amount)}</td>

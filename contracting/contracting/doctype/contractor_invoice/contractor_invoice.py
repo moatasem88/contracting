@@ -283,6 +283,24 @@ def get_totals_preview(doc):
 	}
 
 
+@frappe.whitelist()
+def get_tree_titles(contract_items):
+	"""Progress tree (2026-10-20): per contract line, its Work Item Template
+	name and the line's own description - the tree shows both."""
+	frappe.has_permission("Contractor Invoice", "read", throw=True)
+	if isinstance(contract_items, str):
+		contract_items = frappe.parse_json(contract_items)
+	titles = {}
+	for name in set(contract_items or []):
+		template = _resolve_work_item_template(name)
+		titles[name] = {
+			"template": (frappe.db.get_value("Work Item Template V2", template, "template_name") or template)
+			if template else None,
+			"description": frappe.db.get_value("Contractor Contract Item", name, "description"),
+		}
+	return titles
+
+
 def _resolve_work_item_template(contract_item_name):
 	"""Contractor Contract Item -> Tender BOQ Item -> Work Item Template V2,
 	or None at any missing hop (a labor/equipment-only line has no work_item;

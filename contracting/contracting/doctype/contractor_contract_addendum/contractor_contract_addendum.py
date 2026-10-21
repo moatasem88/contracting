@@ -5,8 +5,6 @@ from frappe.utils import flt
 
 from contracting.contracting.utils import allocation, approval_guards
 from contracting.contracting.utils.allocation import (
-	EQUIPMENT,
-	LABOR_TYPES,
 	TEMPLATE_DOCTYPE,
 	TOLERANCE,
 	line_key,
@@ -36,6 +34,7 @@ IN_FLIGHT_STATES = (
 CONTRACT_RESOURCE_TABLES = (
 	("contract_material_items", "Contractor Contract Material Item"),
 	("contract_labor_items", "Contractor Contract Labor Item"),
+	("contract_subcontract_items", "Contractor Contract Subcontract Item"),
 	("contract_equipment_items", "Contractor Contract Equipment Item"),
 )
 
@@ -149,7 +148,31 @@ class ContractorContractAddendum(Document):
 				)
 			)
 
+		self._validate_resource_lines(row, work_item_row)
 		row.amount = flt(row.qty_delta) * flt(row.unit_price)
+
+	def _validate_resource_lines(self, row, work_item_row):
+		"""2026-10-20 (partial contracts): the lines an Add row takes must be
+		Tender lines of its own work item, in the contract type's pools, and
+		not already on the base contract (that one is an Update instead)."""
+		lines = parse_resource_lines(row.resource_lines)
+		if not lines:
+			row.resource_lines = None
+			return
+		allowed = {line.name: line for line in allocation.get_line_availability(self.type_subcontractor, work_item_row)}
+		on_contract = contract_line_names(self.subcontractor_contract, row.work_item)
+		labels = []
+		for name in lines:
+			if name not in allowed:
+				frappe.throw(_("Row {0}: line {1} is not one of work item {2}'s lines for a {3} contract.").format(
+					row.idx, frappe.bold(name), frappe.bold(row.work_item), self.type_subcontractor))
+			if name in on_contract:
+				frappe.throw(_("Row {0}: line {1} is already on contract {2} - change its qty with an Update "
+							   "on that row instead.").format(row.idx, frappe.bold(allowed[name].item),
+															   frappe.bold(self.subcontractor_contract)))
+			labels.append(allowed[name].item)
+		row.resource_lines = frappe.as_json(lines, indent=None)
+		row.resource_item = ", ".join(labels)
 
 	def validate_base_contract(self):
 		contract = frappe.db.get_value(
@@ -364,8 +387,30 @@ class ContractorContractAddendum(Document):
 		if lock:
 			allocation.lock_work_items([row.work_item for row in tender_rows])
 
+		# 2026-10-20: Add rows that picked their lines are checked per line -
+		# each line needs ratio x qty of what's still free on it.
+		per_line = {}
+		for row in tender_rows:
+			lines = parse_resource_lines(row.resource_lines) if not row.base_contract_item else []
+			if not lines:
+				continue
+			free = {line.name: line for line in allocation.get_line_availability(
+				self.type_subcontractor, allocation.get_work_item(row.work_item))}
+			for name in lines:
+				line = free.get(name)
+				if not line:
+					continue  # _validate_resource_lines already rejected it
+				entry = per_line.setdefault(name, {"qty": 0.0, "idx": row.idx, "line": line})
+				entry["qty"] += line.ratio * flt(row.qty_delta)
+		for entry in per_line.values():
+			if entry["qty"] > entry["line"].available_qty + TOLERANCE:
+				frappe.throw(_("Row {0}: cannot allocate {1} of {2} - only {3} remains available.").format(
+					entry["idx"], flt(entry["qty"]), frappe.bold(entry["line"].item), flt(entry["line"].available_qty)))
+
 		own = {}
 		for row in tender_rows:
+			if not row.base_contract_item and parse_resource_lines(row.resource_lines):
+				continue  # checked per line above
 			key = self._allocation_key(row)
 			entry = own.setdefault(key, {"qty": 0.0, "idx": row.idx})
 			entry["qty"] += flt(row.qty_delta)
@@ -385,10 +430,12 @@ class ContractorContractAddendum(Document):
 				)
 
 	def _allocation_key(self, row):
-		if self.type_subcontractor in LABOR_TYPES:
-			return ("labor", row.work_item, row.labor_item, None)
-		if self.type_subcontractor == EQUIPMENT:
-			return ("equipment", row.work_item, None, row.equipment_item)
+		# Resource-claiming types (Labor / Installing / Equipment) dispatch on
+		# their own pools inside get_row_availability (allocation.type_resources);
+		# the legacy labor_item / equipment_item picks pass straight through
+		# and only one matching a pool the type claims is read.
+		if allocation.type_resources(self.type_subcontractor):
+			return ("resource", row.work_item, row.labor_item, row.equipment_item)
 		return ("item", row.work_item, None, None)
 
 
@@ -447,7 +494,7 @@ def apply_amendments(doc, contract, resource_tables):
 	for row in rows:
 		item = frappe.db.get_value(
 			"Contractor Contract Item", row.base_contract_item,
-			["parent", "qty", "unit_price", "work_item", "work_item_template"], as_dict=True,
+			["name", "parent", "qty", "unit_price", "work_item", "work_item_template"], as_dict=True,
 		)
 		if not item or item.parent != contract.name:
 			frappe.throw(_("Row {0}: contract row {1} no longer exists.").format(row.idx, row.base_contract_item))
@@ -463,6 +510,7 @@ def apply_amendments(doc, contract, resource_tables):
 				update_modified=False,
 			)
 			rescale_resources(contract, item, flt(row.new_qty), resource_tables, doc.type_subcontractor)
+			reprice_components(contract, item, flt(row.new_qty), flt(row.new_unit_price), flt(item.unit_price))
 			summary["updated"] += 1
 		else:
 			if invoiced["qty"] > TOLERANCE or invoiced["amount"] > TOLERANCE:
@@ -476,6 +524,38 @@ def apply_amendments(doc, contract, resource_tables):
 
 	apply_payment_conditions(doc, contract, deleted_keys)
 	return summary
+
+
+def parse_resource_lines(value):
+	if not value:
+		return []
+	lines = frappe.parse_json(value) if isinstance(value, str) else value
+	return [line for line in (lines or []) if line]
+
+
+def contract_line_names(subcontractor_contract, work_item):
+	"""Tender resource-row names already carried on a contract for a work item."""
+	names = set()
+	for _dt, child_doctype, fieldname, link_fieldname in allocation.RESOURCE_PROPAGATION[allocation.SUPPLY_AND_INSTALL]:
+		names.update(frappe.get_all(
+			child_doctype,
+			filters={"parent": subcontractor_contract, "parentfield": fieldname, "work_item": work_item},
+			pluck=link_fieldname,
+		))
+	return {name for name in names if name}
+
+
+@frappe.whitelist()
+def get_addable_lines(subcontractor_contract, work_item):
+	"""The Addendum line picker: the work item's lines this contract's type
+	can claim, minus those the contract already carries."""
+	frappe.has_permission("Subcontractor Contract", "read", doc=subcontractor_contract, throw=True)
+	contract_type = frappe.db.get_value("Subcontractor Contract", subcontractor_contract, "type_subcontractor")
+	on_contract = contract_line_names(subcontractor_contract, work_item)
+	return [
+		line for line in allocation.get_line_availability(contract_type, allocation.get_work_item(work_item))
+		if line.name not in on_contract
+	]
 
 
 def rescale_resources(contract, item, new_qty, resource_tables, contract_type):
@@ -494,10 +574,14 @@ def rescale_resources(contract, item, new_qty, resource_tables, contract_type):
 
 	for _dt, child_doctype, fieldname, link_fieldname in resource_tables:
 		match_field = match_by or link_fieldname
-		existing = frappe.get_all(
-			child_doctype, filters={"parent": contract.name, "parentfield": fieldname, **line_filter},
-			fields=["name", match_field, "auto_propagated"] + (["rate"] if match_by else []),
-		)
+		existing = [
+			r for r in frappe.get_all(
+				child_doctype, filters={"parent": contract.name, "parentfield": fieldname, **line_filter},
+				fields=["name", match_field, "auto_propagated", "contract_row"] + (["rate"] if match_by else []),
+			)
+			# 2026-10-20: only this row's own lines (older rows have no owner).
+			if not r.contract_row or r.contract_row == item.name
+		]
 		for new_row in propagated.get(fieldname, []):
 			match = next((r for r in existing if r.get(match_field) == new_row.get(match_field)), None)
 			if not match or not match.auto_propagated:
@@ -517,6 +601,49 @@ def rescale_resources(contract, item, new_qty, resource_tables, contract_type):
 			frappe.db.set_value(child_doctype, match.name, values, update_modified=False)
 
 
+def reprice_components(contract, item, qty, unit_price, old_unit_price=None):
+	"""2026-10-20: keep a Total-priced line's cost components adding up to
+	its amount when the addendum sets it. A repriced row keeps its own
+	breakdown, scaled to the new price; a new row (or one never broken
+	down) is split in the proportions of the Tender/template budget - the
+	same split the contract form applies (split_component_rates)."""
+	from contracting.contracting.doctype.subcontractor_contract.subcontractor_contract import (
+		_TENDER_LINK_BY_TABLE,
+		split_component_rates,
+	)
+
+	if frappe.db.get_value("Contractor Contract Item", item.name, "pricing_mode") == "Components":
+		return
+
+	line_filter = {"work_item": item.work_item} if item.get("work_item") else {"work_item_template": item.work_item_template}
+	line_rows = []
+	for fieldname, child_doctype in CONTRACT_RESOURCE_TABLES:
+		link_fieldname = _TENDER_LINK_BY_TABLE[fieldname][1]
+		line_rows += [(fieldname, child_doctype, r) for r in frappe.get_all(
+			child_doctype, filters={"parent": contract.name, "parentfield": fieldname, **line_filter},
+			fields=["name", "qty", "rate", "source", "work_item_template", "item", "contract_row", link_fieldname],
+		)]
+	# Rows it owns; unowned rows (from before contract_row) only when nothing
+	# on the line is owned by this row - a new row's lines are always stamped.
+	owned = [entry for entry in line_rows if entry[2].contract_row == item.name] \
+		or [entry for entry in line_rows if not entry[2].contract_row]
+	if not owned:
+		return
+
+	if old_unit_price and any(flt(r.rate) for _f, _dt, r in owned):
+		rates = [flt(r.rate) * flt(unit_price) / flt(old_unit_price) for _f, _dt, r in owned]
+	else:
+		rates = split_component_rates(
+			[{
+				"table": fieldname, "link": r.get(_TENDER_LINK_BY_TABLE[fieldname][1]), "source": r.source,
+				"work_item_template": r.work_item_template, "item": r.item, "qty": r.qty,
+			} for fieldname, _dt, r in owned],
+			flt(qty) * flt(unit_price),
+		)
+	for (_f, child_doctype, r), rate in zip(owned, rates):
+		frappe.db.set_value(child_doctype, r.name, {"rate": rate, "amount": flt(r.qty) * rate}, update_modified=False)
+
+
 def delete_contract_rows(contract, row_names, deleted_keys):
 	"""Remove deleted Contracted Items rows. Resource and payment-condition
 	rows are keyed by the line (work item / template), so they go only when
@@ -524,6 +651,9 @@ def delete_contract_rows(contract, row_names, deleted_keys):
 	pointed at a removed row lose their (zero-progress) rows for it - the
 	delete was refused if any held progress."""
 	frappe.db.delete("Contractor Contract Item", {"name": ("in", row_names)})
+	# 2026-10-20: lines taken for a specific row go with it.
+	for fieldname, child_doctype in CONTRACT_RESOURCE_TABLES:
+		frappe.db.delete(child_doctype, {"parent": contract.name, "contract_row": ("in", row_names)})
 	remaining = {
 		line_key(frappe._dict(r)) for r in frappe.get_all(
 			"Contractor Contract Item", filters={"parent": contract.name}, fields=["work_item", "work_item_template"]
@@ -680,7 +810,7 @@ def apply_on_approval(doc, method=None):
 				TEMPLATE_DOCTYPE, row.work_item_template,
 				["template_name", "description", "uom", "total_cost_per_unit"], as_dict=True,
 			)
-			frappe.get_doc({
+			template_item = frappe.get_doc({
 				"doctype": "Contractor Contract Item",
 				"parent": contract.name,
 				"parenttype": "Subcontractor Contract",
@@ -697,7 +827,8 @@ def apply_on_approval(doc, method=None):
 				"tender_unit_cost": template.total_cost_per_unit,
 				"out_of_tender_scope": 1 if has_tender else 0,
 				"resources_propagated": 1,
-			}).db_insert()
+			})
+			template_item.db_insert()
 			any_out_of_scope = any_out_of_scope or has_tender
 
 			propagated = allocation._template_resource_rows(
@@ -713,11 +844,13 @@ def apply_on_approval(doc, method=None):
 						"parentfield": fieldname,
 						"idx": next_resource_idx[fieldname],
 						**prop_row,
+						"contract_row": template_item.name,
 						"out_of_tender_scope": 1 if has_tender else 0,
 					}).db_insert()
+			reprice_components(contract, template_item, flt(row.qty_delta), flt(row.unit_price))
 			continue
 
-		frappe.get_doc({
+		contract_item = frappe.get_doc({
 			"doctype": "Contractor Contract Item",
 			"parent": contract.name,
 			"parenttype": "Subcontractor Contract",
@@ -734,7 +867,9 @@ def apply_on_approval(doc, method=None):
 			"qty": row.qty_delta,
 			"unit_price": row.unit_price,
 			"amount": row.amount,
-		}).db_insert()
+			"resources_propagated": 1,
+		})
+		contract_item.db_insert()
 
 		work_item_row = allocation.get_work_item(row.work_item)
 		# No exclude_contract: unlike the base contract's own dialog/manual-add
@@ -743,7 +878,12 @@ def apply_on_approval(doc, method=None):
 		# circular), the base contract here is a *different*, already-submitted
 		# document whose prior commitment is real and must count - the same
 		# principle validate_availability above already states explicitly.
-		propagated = allocation._propagated_resource_rows(work_item_row, row.qty_delta, doc.type_subcontractor)
+		# 2026-10-20 (partial contracts): only the lines this Add row picked
+		# (all of them when it picked none), each owned by its new row.
+		lines = parse_resource_lines(row.resource_lines) or None
+		propagated = allocation._propagated_resource_rows(
+			work_item_row, row.qty_delta, doc.type_subcontractor, lines=lines
+		)
 		for _dt, child_doctype, fieldname, _lf in resource_tables:
 			for prop_row in propagated.get(fieldname, []):
 				# apply_on_approval writes directly via db_insert and never
@@ -769,7 +909,9 @@ def apply_on_approval(doc, method=None):
 					"parentfield": fieldname,
 					"idx": next_resource_idx[fieldname],
 					**prop_row,
+					"contract_row": contract_item.name,
 				}).db_insert()
+		reprice_components(contract, contract_item, flt(row.qty_delta), flt(row.unit_price))
 
 	if any_out_of_scope:
 		frappe.db.set_value("Subcontractor Contract", contract.name, "has_out_of_tender_items", 1, update_modified=False)
