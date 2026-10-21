@@ -44,7 +44,8 @@ doctype_js = {
               "Task" : "public/js/task.js",
               "Tender" : "public/js/tender_expand_view.js",
               "Project" : "public/js/project.js",
-              "Sales Order" : "public/js/sales_order.js"
+              "Sales Order" : "public/js/sales_order.js",
+              "Item" : "public/js/item.js"
 
 
 
@@ -178,6 +179,9 @@ fixtures = [
 #	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
 # }
 #
+has_permission = {
+	"Item": "contracting.contracting.controllers.item.has_permission",
+}
 # has_permission = {
 #	"Event": "frappe.desk.doctype.event.event.has_permission",
 # }
@@ -197,6 +201,10 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+    # Tender staff create resource Items only (controllers/item.py).
+    "Item":{
+    "validate":"contracting.contracting.controllers.item.validate"
+	},
     "Project":{
     "on_update":"contracting.contracting.utils.project_cost_billing.on_project_update"
 	},
