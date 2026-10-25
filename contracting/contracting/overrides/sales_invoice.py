@@ -70,8 +70,28 @@ class CustomSalesInvoice(SalesInvoice):
         ]
 
     def validate(self):
+        self.redate_stale_payment_schedule()
         super().validate()
         self.validate_invoice_percentage_ceiling()
+
+    def redate_stale_payment_schedule(self):
+        """With "Automatically fetch payment terms" on, an invoice made from
+        a Sales Order copies the order's Payment Schedule, whose plain (no
+        Payment Term) row is due on the order date. A progress invoice raised
+        months later then fails ERPNext's validate_due_date, because
+        set_due_date() pulls the header due date back to that stale row.
+        ERPNext's own recalculate_terms() only re-dates such rows when the
+        posting date is edited in the form - mirror it server-side, keeping
+        the user's header due date where it's still valid. Rows driven by a
+        real Payment Term are left to ERPNext."""
+        if self.is_pos or not self.posting_date:
+            return
+
+        posting_date = getdate(self.posting_date)
+        due_date = getdate(self.due_date) if self.due_date else posting_date
+        for d in self.get("payment_schedule"):
+            if not d.payment_term and d.due_date and getdate(d.due_date) < posting_date:
+                d.due_date = max(due_date, posting_date)
 
     def validate_invoice_percentage_ceiling(self):
         """FR-22: regardless of how a row's qty was set (percentage field,

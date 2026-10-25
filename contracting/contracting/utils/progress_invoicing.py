@@ -285,6 +285,34 @@ def get_sales_order_item_billing_context(sales_order_item, exclude_invoice=None)
 
 
 @frappe.whitelist()
+def get_sales_order_items_billing_context(sales_order_items, exclude_invoice=None):
+	"""Batch form of get_sales_order_item_billing_context, keyed by Sales
+	Order Item name - sales_invoice.js calls this once per action instead of
+	once per row (one call per row froze the form on a 157-row invoice)."""
+	sales_order_items = list(set(frappe.parse_json(sales_order_items) or []))
+	if not sales_order_items:
+		return {}
+
+	context = {
+		d.name: {"ordered_qty": flt(d.qty), "invoiced_qty_excluding_this_draft": 0.0}
+		for d in frappe.get_all("Sales Order Item", filters={"name": ["in", sales_order_items]}, fields=["name", "qty"])
+	}
+	for so_detail, invoiced_qty in frappe.db.sql(
+		"""
+		select sii.so_detail, coalesce(sum(sii.qty), 0)
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		where sii.so_detail in %s and si.docstatus = 1 and si.name != %s
+		group by sii.so_detail
+		""",
+		(tuple(sales_order_items), exclude_invoice or ""),
+	):
+		if so_detail in context:
+			context[so_detail]["invoiced_qty_excluding_this_draft"] = flt(invoiced_qty)
+	return context
+
+
+@frappe.whitelist()
 def get_invoiced_qty_for_work_item(work_item):
 	"""FR-07/FR-27: how much of one work item has already been invoiced,
 	across every submitted (docstatus=1) Contractor Invoice - shown next to
