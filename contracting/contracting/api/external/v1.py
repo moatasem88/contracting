@@ -103,6 +103,21 @@ def create_work_item_template_draft(template_name, uom, category=None, descripti
 	return _tender.create_work_item_template_draft(template_name, uom, category, description)
 
 
+@frappe.whitelist()
+def list_item_options(search=None, item_groups=None, limit=None, start=None):
+	return _tender.list_item_options(search, item_groups, limit, start)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_resource_item(item_name, item_group, uom):
+	return _tender.create_resource_item(item_name, item_group, uom)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_work_item_template(template_name, uom, description=None, category=None, lines=None, expected_total=None):
+	return _tender.create_work_item_template(template_name, uom, description, category, lines, expected_total)
+
+
 @frappe.whitelist(methods=["POST"])
 def update_tender_boq_quantities(tender, modified, rows):
 	return _tender.update_tender_boq_quantities(tender, modified, rows)

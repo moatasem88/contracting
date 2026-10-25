@@ -222,17 +222,129 @@ def create_work_item_template_draft(template_name, uom, category=None, descripti
 		frappe.throw(_("Template name is required."))
 	if not uom or not frappe.db.exists("UOM", uom):
 		frappe.throw(_("Unit {0} does not exist in the ERP.").format(uom or "-"))
+	description = (description or "").strip() or None
 	base, n = name, 2
 	while frappe.db.exists(TEMPLATE_DOCTYPE, name):
+		# The same item again (another line or part of the BOQ with the same
+		# text, or a retry): reuse it rather than make a numbered copy.
+		same = frappe.db.get_value(TEMPLATE_DOCTYPE, name, ["uom", "description"], as_dict=True)
+		if same.uom == uom and (same.description or None) == description:
+			return {"name": name, "template_name": name, "uom": uom, "reused": True}
 		suffix = f" ({n})"
 		name = base[:140 - len(suffix)] + suffix
 		n += 1
 	doc = frappe.get_doc({
 		"doctype": TEMPLATE_DOCTYPE, "template_name": name, "uom": uom,
-		"category": (category or "").strip() or None, "description": (description or "").strip() or None,
+		"category": (category or "").strip() or None, "description": description,
 	})
 	doc.insert()
-	return {"name": doc.name, "template_name": doc.template_name, "uom": doc.uom}
+	return {"name": doc.name, "template_name": doc.template_name, "uom": doc.uom, "reused": False}
+
+
+RESOURCE_TABLE_GROUPS = {
+	"labor_items": "Labor",
+	"subcontract_items": "Subcontractors Items",
+	"equipment_items": "Equipment",
+}
+TEMPLATE_TABLES = ("material_items", "labor_items", "subcontract_items", "equipment_items")
+
+
+def list_item_options(search=None, item_groups=None, limit=None, start=None):
+	"""Item picker for the breakdown intake's materials mapping: code, name,
+	group, stock UOM and that UOM's conversions. Item read permission."""
+	frappe.has_permission("Item", "read", throw=True)
+	filters = {"disabled": 0}
+	groups = parse(item_groups, None)
+	if groups:
+		filters["item_group"] = ["in", groups]
+	result = list_view("Item", ("name", "item_name", "item_group", "stock_uom", "is_stock_item"), filters, search,
+					   ("name", "item_name"), limit, start, order_by="item_name asc")
+	codes = [row["name"] for row in result["data"]]
+	conversions = {}
+	if codes:
+		for row in frappe.get_all("UOM Conversion Detail", filters={"parent": ["in", codes], "parenttype": "Item"},
+								  fields=["parent", "uom", "conversion_factor"]):
+			conversions.setdefault(row.parent, []).append({"uom": row.uom, "factor": row.conversion_factor})
+	for row in result["data"]:
+		row["uoms"] = conversions.get(row["name"], [])
+	return result
+
+
+def create_resource_item(item_name, item_group, uom):
+	"""A Labor / Subcontractors Items / Equipment Item for a breakdown line
+	that has none yet: non-stock, reused when one of that name already
+	exists in that group. Material items are the stock department's."""
+	if item_group not in RESOURCE_TABLE_GROUPS.values():
+		frappe.throw(_("Only {0} items can be created here.").format(", ".join(RESOURCE_TABLE_GROUPS.values())))
+	name = (item_name or "").strip()[:140]
+	if not name:
+		frappe.throw(_("Item name is required."))
+	if not uom or not frappe.db.exists("UOM", uom):
+		frappe.throw(_("Unit {0} does not exist in the ERP.").format(uom or "-"))
+	existing = frappe.db.get_value("Item", {"item_name": name, "item_group": item_group, "disabled": 0}, "name")
+	if existing:
+		return {"name": existing, "reused": True}
+	frappe.has_permission("Item", "create", throw=True)
+	code = name if not frappe.db.exists("Item", name) else f"{name[:130]} - {item_group}"
+	doc = frappe.get_doc({
+		"doctype": "Item", "item_code": code, "item_name": name, "item_group": item_group, "stock_uom": uom,
+		"is_stock_item": 0, "include_item_in_manufacturing": 0,
+	})
+	doc.insert()
+	return {"name": doc.name, "reused": False}
+
+
+def create_work_item_template(template_name, uom, description=None, category=None, lines=None, expected_total=None):
+	"""A priced template from a breakdown block (docs/template-rules.md):
+	lines = [{table, item, qty_per_unit, rate}]. The saved total must equal
+	expected_total (the block's TOTAL ITEM DIRECT BUDGET) within 0.05, or
+	nothing is kept. The same name with the same description and total
+	returns the existing template; the same name with other content is an
+	error - the caller names variants (rules §3)."""
+	frappe.has_permission(TEMPLATE_DOCTYPE, "create", throw=True)
+	lines = parse(lines, []) or []
+	name = (template_name or "").strip()
+	description = (description or "").strip() or None
+	if not name or len(name) > 140:
+		frappe.throw(_("Template name is required and must be at most 140 characters."))
+	if not uom or not frappe.db.exists("UOM", uom):
+		frappe.throw(_("Unit {0} does not exist in the ERP.").format(uom or "-"))
+	if not lines:
+		frappe.throw(_("A template needs at least one priced line."))
+	expected = float(expected_total) if expected_total not in (None, "") else None
+
+	if frappe.db.exists(TEMPLATE_DOCTYPE, name):
+		same = frappe.db.get_value(TEMPLATE_DOCTYPE, name, ["description", "total_cost_per_unit"], as_dict=True)
+		if (same.description or None) == description and (
+				expected is None or abs((same.total_cost_per_unit or 0) - expected) <= 0.05):
+			return {"name": name, "total_cost_per_unit": same.total_cost_per_unit, "reused": True}
+		frappe.throw(_("A different template is already named {0}.").format(name), frappe.DuplicateEntryError)
+
+	doc = frappe.new_doc(TEMPLATE_DOCTYPE)
+	doc.update({"template_name": name, "uom": uom, "category": (category or "").strip() or None,
+				"description": description})
+	for index, line in enumerate(lines, 1):
+		table = line.get("table")
+		if table not in TEMPLATE_TABLES:
+			frappe.throw(_("Line {0}: unknown table {1}.").format(index, table))
+		item = line.get("item")
+		if not item or not frappe.db.exists("Item", item):
+			frappe.throw(_("Line {0}: Item {1} not found.").format(index, item or "-"))
+		doc.append(table, {
+			"item": item,
+			"qty_per_unit": positive(line.get("qty_per_unit"), _("Line {0} quantity").format(index)),
+			"rate": positive(line.get("rate"), _("Line {0} rate").format(index), allow_zero=True),
+		})
+	# A savepoint, so a wrong total leaves nothing behind for in-process
+	# callers too (an HTTP request rolls back on the error anyway).
+	frappe.db.savepoint("work_item_template_create")
+	doc.insert()
+	if expected is not None and abs((doc.total_cost_per_unit or 0) - expected) > 0.05:
+		total = doc.total_cost_per_unit
+		frappe.db.rollback(save_point="work_item_template_create")
+		frappe.throw(_("The template adds up to {0}, the breakdown says {1}.").format(
+			frappe.format(total, "Currency"), frappe.format(expected, "Currency")))
+	return {"name": doc.name, "total_cost_per_unit": doc.total_cost_per_unit, "reused": False}
 
 
 def update_tender_boq_quantities(tender, modified, rows):

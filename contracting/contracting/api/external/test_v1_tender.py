@@ -5,7 +5,11 @@ from frappe.utils import flt
 from contracting.contracting.api import create_work_item_group
 from contracting.contracting.api.external import v1
 from contracting.contracting.api.external.v1_test_utils import as_user, make_user
-from contracting.contracting.doctype.subcontractor_contract.test_subcontractor_contract import make_v2_template
+from contracting.contracting.doctype.subcontractor_contract.test_subcontractor_contract import (
+	ensure_resource_item,
+	ensure_stock_item,
+	make_v2_template,
+)
 from contracting.contracting.doctype.tender import tender as tender_controller
 from contracting.contracting.doctype.tender.test_tender import ensure_customer, make_project_tender, make_tender
 
@@ -253,9 +257,11 @@ class TestV1Tender(FrappeTestCase):
 	def test_create_work_item_template_draft(self):
 		with as_user(self.civil):
 			first = v1.create_work_item_template_draft("_v1 draft انترلوك سمك 6 سم", "Nos", "أعمال موقع عام", "وصف")
-			second = v1.create_work_item_template_draft("_v1 draft انترلوك سمك 6 سم", "Nos")
+			again = v1.create_work_item_template_draft("_v1 draft انترلوك سمك 6 سم", "Nos", "أعمال موقع عام", "وصف")
+			second = v1.create_work_item_template_draft("_v1 draft انترلوك سمك 6 سم", "Nos", None, "وصف آخر")
 		self.assertEqual(first["name"], "_v1 draft انترلوك سمك 6 سم")
-		self.assertEqual(second["name"], "_v1 draft انترلوك سمك 6 سم (2)")
+		self.assertEqual((again["name"], again["reused"]), (first["name"], True))  # same item: reused
+		self.assertEqual(second["name"], "_v1 draft انترلوك سمك 6 سم (2)")  # same name, different item
 		doc = frappe.get_doc("Work Item Template V2", first["name"])
 		self.assertEqual((doc.uom, doc.category, len(doc.labor_items)), ("Nos", "أعمال موقع عام", 0))
 		self.assertRaises(frappe.ValidationError, v1.create_work_item_template_draft, "_v1 draft x", "_no unit")
@@ -278,3 +284,54 @@ class TestV1Tender(FrappeTestCase):
 			{"boq_item_no": "9.1", "template": draft, "quantity": 4, "client_rate": 250}])
 		row = next(r for r in response["view"]["data"]["boq_items"] if r.get("boq_item_no") == "9.1")
 		self.assertEqual((flt(row["sell_rate"]), flt(row["sell_amount"]), flt(row["margin_percent"])), (250, 1000, 0))
+
+	# -- Breakdown intake: priced templates from the breakdown sheet ----------------
+
+	def _priced_lines(self):
+		labor = ensure_resource_item("_Test SC Labor")
+		material = ensure_stock_item("_Test SC Stock Material")
+		return [{"table": "material_items", "item": material, "qty_per_unit": 1.05, "rate": 3200},
+				{"table": "labor_items", "item": labor, "qty_per_unit": 1, "rate": 2600}]
+
+	def test_create_priced_template_checks_total_and_reuses(self):
+		lines = self._priced_lines()
+		with as_user(self.civil):
+			made = v1.create_work_item_template("_v1 priced خرسانة", "Nos", "full text", "أعمال الخرسانات", lines, 5960)
+			again = v1.create_work_item_template("_v1 priced خرسانة", "Nos", "full text", "أعمال الخرسانات", lines, 5960)
+		self.assertEqual((made["reused"], again["reused"], again["name"]), (False, True, made["name"]))
+		self.assertAlmostEqual(flt(made["total_cost_per_unit"]), 5960)
+		# Same name, other content: the caller must name the variant.
+		self.assertRaises(frappe.DuplicateEntryError, v1.create_work_item_template, "_v1 priced خرسانة", "Nos",
+						  "another text", None, lines, 5960)
+
+	def test_create_priced_template_refuses_a_wrong_total(self):
+		self.assertRaises(frappe.ValidationError, v1.create_work_item_template, "_v1 priced bad total", "Nos",
+						  "x", None, self._priced_lines(), 6000)
+		self.assertFalse(frappe.db.exists("Work Item Template V2", "_v1 priced bad total"))
+
+	def test_create_priced_template_checks_items_and_groups(self):
+		lines = self._priced_lines()
+		bad = [dict(lines[0], item="_no such item")]
+		self.assertRaises(frappe.ValidationError, v1.create_work_item_template, "_v1 priced no item", "Nos", "x",
+						  None, bad, None)
+		wrong_group = [dict(lines[0], table="labor_items")]  # a stock item as labour
+		self.assertRaises(frappe.ValidationError, v1.create_work_item_template, "_v1 priced group", "Nos", "x",
+						  None, wrong_group, None)
+
+	def test_create_resource_item(self):
+		with as_user(self.civil):
+			made = v1.create_resource_item("_v1 مصنعية خ.م هيكل", "Subcontractors Items", "Nos")
+			again = v1.create_resource_item("_v1 مصنعية خ.م هيكل", "Subcontractors Items", "Nos")
+			self.assertRaises(frappe.ValidationError, v1.create_resource_item, "_v1 رمل", "Raw Material", "Nos")
+		self.assertEqual((again["name"], again["reused"]), (made["name"], True))
+		item = frappe.get_doc("Item", made["name"])
+		self.assertEqual((item.item_group, item.is_stock_item), ("Subcontractors Items", 0))
+
+	def test_list_item_options(self):
+		material = ensure_stock_item("_Test SC Stock Material")
+		with as_user(self.civil):
+			found = v1.list_item_options(search="_Test SC Stock")["data"]
+			labour = v1.list_item_options(search="_Test SC", item_groups=["Labor"])["data"]
+		self.assertIn(material, [r["name"] for r in found])
+		self.assertTrue(all(r["item_group"] == "Labor" for r in labour))
+		self.assertIn("uoms", found[0])
