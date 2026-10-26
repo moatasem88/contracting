@@ -9,9 +9,10 @@ def get_v2_template_rows(template_name):
 	plus flat resource rows tagged by type for insertion into the
 	Tender's own Material/Labor/Equipment tabs - those tabs are the real
 	editable input now, not nested children of the BOQ row. Rate on each
-	resource row prefers the item's current last_purchase_rate over the
-	template's own stored rate, since the template is a reference
-	skeleton, not an authoritative price."""
+	resource row comes solely from the template's own configured rate
+	(0 if unset) - an item's last_purchase_rate is never fetched here,
+	since purchase history can be stale, off-project, or tied to a
+	different quantity/supplier than the one being estimated now."""
 
 	template = frappe.get_doc("Work Item Template V2", template_name)
 
@@ -19,10 +20,11 @@ def get_v2_template_rows(template_name):
 	for fieldname, resource_type in (
 		("material_items", "material"),
 		("labor_items", "labor"),
+		("subcontract_items", "subcontract"),
 		("equipment_items", "equipment"),
 	):
 		for row in template.get(fieldname):
-			rate = frappe.db.get_value("Item", row.item, "last_purchase_rate") or row.rate or 0
+			rate = row.rate or 0
 			children.append({
 				"resource_type": resource_type,
 				"item": row.item,
@@ -30,13 +32,20 @@ def get_v2_template_rows(template_name):
 				"rate": rate,
 			})
 
+	# Per-unit fixed amounts go to fixed_additions_per_unit, which the
+	# Tender multiplies by original_quantity; lump sums go to
+	# fixed_additions, added once per BOQ row.
 	additions_pct = 0.0
-	fixed = 0.0
+	fixed_per_unit = 0.0
+	fixed_lump_sum = 0.0
 	for a in template.additions:
 		if a.calculation_type == "Percentage":
 			additions_pct += (a.value or 0)
 		elif a.calculation_type == "Fixed Amount":
-			fixed += (a.value or 0)
+			if a.per_unit_item:
+				fixed_per_unit += (a.value or 0)
+			else:
+				fixed_lump_sum += (a.value or 0)
 
 	parent = {
 		"item_name": template.template_name,
@@ -45,7 +54,8 @@ def get_v2_template_rows(template_name):
 		"is_group": 0,
 		"vat_percentage": 0,
 		"other_additions_pct": additions_pct,
-		"fixed_additions": fixed,
+		"fixed_additions": fixed_lump_sum,
+		"fixed_additions_per_unit": fixed_per_unit,
 	}
 
 	return {"parent": parent, "children": children}

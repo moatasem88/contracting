@@ -10,7 +10,34 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 
-RESOURCE_TABLE_FIELDS = ("material_items", "labor_items", "equipment_items")
+RESOURCE_TABLE_FIELDS = ("material_items", "labor_items", "subcontract_items", "equipment_items")
+
+# Keep in sync with EXPORT_ROLES in tender.js. Server check is the control;
+# the button is a convenience. Contracts Manager is deliberately absent.
+TENDER_EXPORT_ROLES = frozenset((
+	"Tender Manager",
+	"Tender Engineer Civil",
+	"Tender Engineer Electrical",
+	"Tender Engineer Mechanical",
+	"Cost Control Engineer",
+	"cost control manager",
+	"Planning and Cost Control Director",
+	"Planning Manager",
+	"Business Development Manager",
+	"Business Development Director",
+	"Company CEO",
+	"System Manager",
+))
+
+# (sheet title, Tender table fieldname) in workbook order
+EXPORT_SHEETS = (
+	("BOQ Items", "boq_items"),
+	("Material", "material_items"),
+	("Labor", "labor_items"),
+	("Subcontract", "subcontract_items"),
+	("Equipment", "equipment_items"),
+)
+EXPORT_LAYOUT_TYPES = ("Section Break", "Column Break", "Tab Break", "HTML", "Button", "Heading")
 
 
 class Tender(Document):
@@ -162,11 +189,12 @@ class Tender(Document):
 		# resource tabs via `work_item`.
 		totals_by_work_item = {}
 		# Per-work-item cost layers, split by resource type - feeds the
-		# material_cost/labor_cost/equipment_cost/boq_* rollup fields.
+		# material_cost/labor_cost/subcontract_cost/equipment_cost/boq_* rollup fields.
 		layer_totals_by_work_item = {}
 		table_layer_key = {
 			"material_items": "material",
 			"labor_items": "labor",
+			"subcontract_items": "subcontract",
 			"equipment_items": "equipment",
 		}
 		for fieldname in RESOURCE_TABLE_FIELDS:
@@ -177,7 +205,7 @@ class Tender(Document):
 				)
 				layers = layer_totals_by_work_item.setdefault(
 					row.work_item,
-					{"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0},
+					{"material": 0.0, "labor": 0.0, "subcontract": 0.0, "equipment": 0.0, "safety": 0.0},
 				)
 				layers[layer_key] += row.direct_cost_amount or 0
 				layers["safety"] += row.safety_factor_amount or 0
@@ -199,23 +227,28 @@ class Tender(Document):
 			row.total_amount = base_cost
 
 			layers = layer_totals_by_work_item.get(
-				row.idx, {"material": 0.0, "labor": 0.0, "equipment": 0.0, "safety": 0.0}
+				row.idx, {"material": 0.0, "labor": 0.0, "subcontract": 0.0, "equipment": 0.0, "safety": 0.0}
 			)
 			row.material_cost = layers["material"]
 			row.labor_cost = layers["labor"]
+			row.subcontract_cost = layers["subcontract"]
 			row.equipment_cost = layers["equipment"]
 
 			# Direct Cost/Additions are computed against the raw material+
-			# labor+equipment sum (pre-Safety-Factor, pre-Indirect-Cost) -
+			# labor+subcontract+equipment sum (pre-Safety-Factor, pre-Indirect-Cost) -
 			# never against base_cost above, which already carries Safety
 			# Factor + Indirect Cost via the resource-row fold-in in
 			# calculate_resource_quantities(). This is what keeps Direct
 			# Cost structurally free of Indirect Cost, closing the
 			# self-reference described in the 2026-09-01 BRD.
-			raw_direct = layers["material"] + layers["labor"] + layers["equipment"]
+			raw_direct = layers["material"] + layers["labor"] + layers["subcontract"] + layers["equipment"]
 			row_vat_amount = raw_direct * (row.vat_percentage or 0) / 100.0
-			row_additions_amount = raw_direct * (row.other_additions_pct or 0) / 100.0 + (
-				row.fixed_additions or 0
+			# fixed_additions is a lump sum per row; fixed_additions_per_unit
+			# scales with quantity. Mirrored in tender.js.
+			row_additions_amount = (
+				raw_direct * (row.other_additions_pct or 0) / 100.0
+				+ (row.fixed_additions or 0)
+				+ (row.fixed_additions_per_unit or 0) * (row.original_quantity or 0)
 			)
 
 			row.boq_direct_cost = raw_direct + row_vat_amount + row_additions_amount
@@ -265,7 +298,16 @@ class Tender(Document):
 		for row in self.boq_items:
 			if row.is_group:
 				continue
-			row.sell_rate = (row.effective_unit_price or 0) * (1 + (row.margin_percent or 0) / 100.0)
+			if flt(row.client_rate):
+				# Priced to the client's BOQ rate (BOQ intake, 2026-10-21:
+				# "same pricing for now"): the sell rate is pinned and the
+				# margin is what that rate implies over cost - negative when
+				# the client pays less than cost, 0 while there is no cost yet.
+				row.sell_rate = flt(row.client_rate)
+				cost = flt(row.effective_unit_price)
+				row.margin_percent = (row.sell_rate / cost - 1) * 100.0 if cost else 0.0
+			else:
+				row.sell_rate = (row.effective_unit_price or 0) * (1 + (row.margin_percent or 0) / 100.0)
 			row.sell_amount = row.sell_rate * (row.original_quantity or 0)
 
 
@@ -289,6 +331,7 @@ def preview_resource_totals(tender):
 		"boq_items": [r.as_dict() for r in doc.boq_items],
 		"material_items": [r.as_dict() for r in doc.material_items],
 		"labor_items": [r.as_dict() for r in doc.labor_items],
+		"subcontract_items": [r.as_dict() for r in doc.subcontract_items],
 		"equipment_items": [r.as_dict() for r in doc.equipment_items],
 	}
 
@@ -296,10 +339,11 @@ def preview_resource_totals(tender):
 LIVE_SYNC_FIELDS = {
 	"Tender BOQ Item": (
 		"description",
-		"vat_percentage", "other_additions_pct", "fixed_additions", "margin_percent",
+		"vat_percentage", "other_additions_pct", "fixed_additions", "fixed_additions_per_unit",
+		"margin_percent",
 		"original_quantity", "display_currency",
 		"total_amount", "effective_unit_price", "sell_rate", "sell_amount",
-		"material_cost", "labor_cost", "equipment_cost", "boq_direct_cost",
+		"material_cost", "labor_cost", "subcontract_cost", "equipment_cost", "boq_direct_cost",
 		"boq_safety_factor_amount", "boq_indirect_cost_amount",
 		"indirect_cost_percent", "display_amount",
 	),
@@ -310,12 +354,14 @@ LIVE_SYNC_FIELDS = {
 	),
 }
 LIVE_SYNC_FIELDS["Tender Labor Item"] = LIVE_SYNC_FIELDS["Tender Material Item"]
+LIVE_SYNC_FIELDS["Tender Subcontract Item"] = LIVE_SYNC_FIELDS["Tender Material Item"]
 LIVE_SYNC_FIELDS["Tender Equipment Item"] = LIVE_SYNC_FIELDS["Tender Material Item"]
 
 LIVE_SYNC_CHILD_TABLES = {
 	"boq_items": "Tender BOQ Item",
 	"material_items": "Tender Material Item",
 	"labor_items": "Tender Labor Item",
+	"subcontract_items": "Tender Subcontract Item",
 	"equipment_items": "Tender Equipment Item",
 }
 
@@ -453,13 +499,23 @@ def add_boq_item_from_template(tender_name, template_name, original_quantity=1):
 	before appending its own - idx is assigned by append() itself
 	(synchronous, before save), so both rows land with correct,
 	non-colliding idx values."""
+	doc = frappe.get_doc("Tender", tender_name, for_update=True)
+	row = append_boq_item_from_template(doc, template_name, original_quantity)
+	doc.save()
+	return {"boq_row_idx": row.idx}
+
+
+def append_boq_item_from_template(doc, template_name, original_quantity=1, extra_fields=None):
+	"""Append one BOQ row + its template-derived resource rows to an
+	already-loaded Tender, without saving - so a caller can add many rows
+	(the BOQ intake's add_boq_lines) under one lock and one save.
+	extra_fields (description, boq_item_no, client_rate, indent) are set on
+	the BOQ row."""
 	from contracting.contracting.api.work_item_template_v2 import get_v2_template_rows
 
 	original_quantity = flt(original_quantity) or 1
 	payload = get_v2_template_rows(template_name)
 	parent, children = payload["parent"], payload["children"]
-
-	doc = frappe.get_doc("Tender", tender_name, for_update=True)
 
 	row = doc.append("boq_items", {
 		"work_item_template": template_name,
@@ -471,9 +527,14 @@ def add_boq_item_from_template(tender_name, template_name, original_quantity=1):
 		"vat_percentage": parent["vat_percentage"],
 		"other_additions_pct": parent["other_additions_pct"],
 		"fixed_additions": parent["fixed_additions"],
+		"fixed_additions_per_unit": parent["fixed_additions_per_unit"],
+		**(extra_fields or {}),
 	})
 
-	table_by_type = {"material": "material_items", "labor": "labor_items", "equipment": "equipment_items"}
+	table_by_type = {
+		"material": "material_items", "labor": "labor_items",
+		"subcontract": "subcontract_items", "equipment": "equipment_items",
+	}
 	for child in children:
 		fieldname = table_by_type[child["resource_type"]]
 		qty = (child["qty_per_unit"] or 0) * original_quantity
@@ -489,9 +550,7 @@ def add_boq_item_from_template(tender_name, template_name, original_quantity=1):
 			"exchange_rate": 1,
 			"amount": qty * (child["rate"] or 0),
 		})
-
-	doc.save()
-	return {"boq_row_idx": row.idx}
+	return row
 
 
 @frappe.whitelist()
@@ -515,6 +574,11 @@ def create_revised_version(tender_name):
 	the new version into the relevant Project Tender's Direct Cost Detail
 	row is a manual step, not automatic."""
 	source = frappe.get_doc("Tender", tender_name)
+	# The insert below runs with ignore_permissions so Tender Manager (write,
+	# no create in Tender's Custom DocPerm) can still revise - which makes
+	# this check the only gate: without it any logged-in user could clone any
+	# Complete Tender.
+	source.check_permission("write")
 	if source.status != "Complete":
 		frappe.throw(_("Create Revised Version is only available once a Tender is Complete."))
 
@@ -525,3 +589,102 @@ def create_revised_version(tender_name):
 	new_tender.insert(ignore_permissions=True)
 
 	return new_tender.name
+
+
+def _export_columns(doctype):
+	"""Visible data fields of a child doctype, in field_order."""
+	# child doctypes have no permissions of their own - use Tender's
+	levels = frappe.get_meta("Tender").get_permlevel_access("read")
+	return [
+		df
+		for df in frappe.get_meta(doctype).fields
+		if df.fieldtype not in EXPORT_LAYOUT_TYPES
+		and not df.hidden
+		and (df.permlevel or 0) in levels
+	]
+
+
+def _export_cell(df, value):
+	if value is None:
+		return None
+	if df.fieldtype == "Check":
+		return _("Yes") if value else _("No")
+	if df.fieldtype in ("Currency", "Float", "Percent", "Int"):
+		return flt(value) if df.fieldtype != "Int" else int(value)
+	return value
+
+
+def _safe_filename(name):
+	import re
+
+	return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "Tender"
+
+
+@frappe.whitelist()
+def export_tender_xlsx(tender, scope="Whole Tender"):
+	"""Download one Tender's priced scope as .xlsx, whole or one tab.
+
+	Read-only: loads the saved document and never saves it. Built with
+	openpyxl directly - frappe's make_xlsx inserts each sheet at index 0
+	(reverses order), is write_only (no per-cell bold) and runs HTML
+	stripping over every string."""
+	from io import BytesIO
+
+	from openpyxl import Workbook
+	from openpyxl.styles import Font
+	from openpyxl.utils import get_column_letter
+
+	scopes = {"Whole Tender": [s for s, _f in EXPORT_SHEETS]}
+	scopes.update({sheet: [sheet] for sheet, _f in EXPORT_SHEETS})
+	if scope not in scopes:
+		frappe.throw(_("Invalid export scope: {0}").format(scope), frappe.ValidationError)
+
+	if not (TENDER_EXPORT_ROLES & set(frappe.get_roles())):
+		frappe.throw(_("You are not allowed to export Tenders."), frappe.PermissionError)
+	if not frappe.has_permission("Tender", "read", doc=tender):
+		frappe.throw(_("You do not have read access to this Tender."), frappe.PermissionError)
+
+	doc = frappe.get_doc("Tender", tender)
+	boq_names = {row.idx: row.item_name for row in doc.boq_items}
+	table_by_sheet = dict(EXPORT_SHEETS)
+	bold = Font(bold=True)
+
+	wb = Workbook()
+	wb.remove(wb.active)
+	for sheet in scopes[scope]:
+		fieldname = table_by_sheet[sheet]
+		child_doctype = doc.meta.get_field(fieldname).options
+		columns = _export_columns(child_doctype)
+		is_resource = fieldname in RESOURCE_TABLE_FIELDS
+
+		ws = wb.create_sheet(sheet)
+		headers = ["#"] + (["Work Item"] if is_resource else []) + [_(df.label) if df.label else df.fieldname for df in columns]
+		ws.append(headers)
+		for cell in ws[1]:
+			cell.font = bold
+
+		widths = [len(str(h)) for h in headers]
+		for row in doc.get(fieldname):
+			values = [row.idx]
+			if is_resource:
+				values.append(boq_names.get(row.get("work_item")) if row.get("work_item") else None)
+			values += [_export_cell(df, row.get(df.fieldname)) for df in columns]
+			ws.append(values)
+			out = ws[ws.max_row]
+			for i, cell in enumerate(out):
+				if isinstance(cell.value, str):
+					# plain text, never a formula (= + - @ prefixed input)
+					cell.data_type = "s"
+				widths[i] = max(widths[i], min(len(str(cell.value or "")), 60))
+			if fieldname == "boq_items" and row.get("is_group"):
+				for cell in out:
+					cell.font = bold
+		for i, w in enumerate(widths, 1):
+			ws.column_dimensions[get_column_letter(i)].width = w + 2
+
+	out = BytesIO()
+	wb.save(out)
+	suffix = "" if scope == "Whole Tender" else f" - {scope}"
+	frappe.response["filename"] = _safe_filename(f"{doc.name}{suffix}") + ".xlsx"
+	frappe.response["filecontent"] = out.getvalue()
+	frappe.response["type"] = "binary"

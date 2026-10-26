@@ -2,6 +2,78 @@
  {
   "docstatus": 0,
   "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-02 11:26:30.589295",
+  "name": "Pending Project Manager Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Project Manager Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-02 11:26:30.898128",
+  "name": "Pending Cost Control Engineer Review",
+  "style": "Warning",
+  "workflow_state_name": "Pending Cost Control Engineer Review"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-02 11:26:30.900679",
+  "name": "Pending Cost Control Manager Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Cost Control Manager Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-02 11:26:30.903286",
+  "name": "Pending Planning and Cost Control Director Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Planning and Cost Control Director Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-02 11:26:30.905596",
+  "name": "Pending Accountant Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Accountant Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-02 11:26:30.907983",
+  "name": "Pending Accounts Manager Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Accounts Manager Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-27 12:27:20.383489",
+  "name": "Pending Projects Director Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Projects Director Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-09-27 12:27:20.658927",
+  "name": "Pending Cost Control Director Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Cost Control Director Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
   "icon": "remove",
   "modified": "2024-01-07 22:15:38.643854",
   "name": "Rejected",

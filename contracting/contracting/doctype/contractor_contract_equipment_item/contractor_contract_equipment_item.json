@@ -7,22 +7,47 @@
  "engine": "InnoDB",
  "field_order": [
   "work_item",
+  "work_item_template",
+  "contract_row",
   "uom",
   "equipment_item",
+  "item",
+  "source",
   "resource_item",
   "available_qty",
   "qty",
-  "auto_propagated"
+  "rate",
+  "tender_rate",
+  "amount",
+  "auto_propagated",
+  "out_of_tender_scope"
  ],
  "fields": [
   {
+   "columns": 2,
    "description": "The Tender BOQ line this equipment row belongs to. Restricted to the header tender's BOQ rows.",
    "fieldname": "work_item",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Work Item",
-   "options": "Tender BOQ Item",
-   "reqd": 1
+   "options": "Tender BOQ Item"
+  },
+  {
+   "columns": 2,
+   "description": "For rows belonging to a template line. Exactly one of Work Item / Work Item Template is set.",
+   "fieldname": "work_item_template",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Work Item Template",
+   "options": "Work Item Template V2"
+  },
+  {
+   "fieldname": "contract_row",
+   "fieldtype": "Data",
+   "label": "Contract Row",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "The Contracted Items row this line was taken for (2026-10-20 partial contracts). Blank on rows from before then - those belong to their work item as a whole."
   },
   {
    "fieldname": "uom",
@@ -35,15 +60,31 @@
    "description": "Equipment line within the selected work item's Equipment tab.",
    "fieldname": "equipment_item",
    "fieldtype": "Link",
-   "in_list_view": 1,
    "label": "Equipment Item",
    "options": "Tender Equipment Item"
+  },
+  {
+   "columns": 2,
+   "description": "Template-sourced and extra rows. Filtered by tab.",
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "columns": 1,
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Source",
+   "options": "\nTender\nTemplate\nExtra",
+   "read_only": 1
   },
   {
    "description": "The machine being contracted - the Item on the Equipment line selected above (e.g. Excavator-20T). Carried across so it stays visible in list view, reports and print.",
    "fieldname": "resource_item",
    "fieldtype": "Data",
-   "in_list_view": 1,
    "label": "Resource Item",
    "read_only": 1
   },
@@ -51,11 +92,11 @@
    "description": "Remaining quantity available to contract, reconciled across all contract types.",
    "fieldname": "available_qty",
    "fieldtype": "Float",
-   "in_list_view": 1,
    "label": "Available Qty",
    "read_only": 1
   },
   {
+   "columns": 1,
    "fieldname": "qty",
    "fieldtype": "Float",
    "in_list_view": 1,
@@ -63,17 +104,48 @@
    "reqd": 1
   },
   {
+   "columns": 1,
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate"
+  },
+  {
+   "columns": 1,
+   "description": "Tender row: the Tender resource rate (EGP). Template row: the template rate. Visible to Cost Control and above only.",
+   "fieldname": "tender_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Tender Rate",
+   "permlevel": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
    "default": "0",
    "fieldname": "auto_propagated",
    "fieldtype": "Check",
    "hidden": 1,
    "label": "Auto Propagated"
+  },
+  {
+   "default": "0",
+   "fieldname": "out_of_tender_scope",
+   "fieldtype": "Check",
+   "label": "Out of Tender Scope",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-30 12:00:00.000000",
+ "modified": "2026-10-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Contractor Contract Equipment Item",

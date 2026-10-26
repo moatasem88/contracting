@@ -428,7 +428,7 @@
    "width": null
   }
  ],
-"custom_perms": [
+ "custom_perms": [
   {
    "_assign": null,
    "_comments": null,
@@ -729,6 +729,34 @@
    "read": 0,
    "report": 0,
    "role": "Employee Self Service",
+   "select": 1,
+   "set_user_permissions": 0,
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "creation": "2026-10-22 09:52:19.989238",
+   "delete": 0,
+   "docstatus": 0,
+   "email": 0,
+   "export": 1,
+   "idx": 0,
+   "if_owner": 0,
+   "import": 0,
+   "modified": "2026-10-22 09:52:19.989238",
+   "modified_by": "Administrator",
+   "name": "31o7fup8js",
+   "owner": "Administrator",
+   "parent": "Company",
+   "permlevel": 0,
+   "print": 0,
+   "read": 1,
+   "report": 0,
+   "role": "Stock user (new)",
    "select": 1,
    "set_user_permissions": 0,
    "share": 0,

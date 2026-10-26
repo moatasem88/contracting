@@ -9,6 +9,7 @@ from contracting.contracting.doctype.client_progress_invoice.client_progress_inv
 	create_sales_invoice_from_backlog,
 	get_project_sales_orders,
 	get_sales_order_items,
+	sync_live_edits,
 )
 from contracting.contracting.doctype.tender.test_tender import ensure_customer
 from contracting.contracting.utils.test_project_cost_billing import make_won_project
@@ -18,24 +19,37 @@ def won_sales_order(suffix, qty=10, rate=100):
 	"""Single-Tender/single-Sales-Order case, via the current Won pipeline
 	(Project Tender -> handle_won_automation() -> Sales Order) - Tender no
 	longer has its own status="Won"/sales_order fields, so this can't go
-	through Tender directly the way it used to."""
+	through Tender directly the way it used to.
+
+	create_sales_order_from_tender() now deliberately leaves the generated
+	order in Draft (a review pass - tax/charge template, totals - is
+	expected before it's finalized) - CPI's own progress-invoicing pipeline
+	only ever claims against a *submitted* Sales Order (get_sales_order_items
+	filters docstatus=1), so this test helper submits it, mirroring what a
+	real user would do between Won automation and raising a claim."""
 	project, tenders = make_won_project("cpi_" + suffix, [("Civil", rate)], qty=qty)
 	so_name = frappe.db.get_value(
 		"Project Tender Direct Cost Detail", {"tender": tenders[0].name}, "sales_order"
 	)
-	return frappe.get_doc("Sales Order", so_name)
+	so = frappe.get_doc("Sales Order", so_name)
+	so.submit()
+	so.reload()
+	return so
 
 
 def won_project_with_sales_orders(suffix, category_rates, qty=10):
 	"""One Project carrying one Sales Order per (tender_category, rate) pair
 	in `category_rates` - the project-mode equivalent of won_sales_order."""
 	project, tenders = make_won_project("cpi_" + suffix, category_rates, qty=qty)
-	sales_orders = [
-		frappe.get_doc("Sales Order", frappe.db.get_value(
+	sales_orders = []
+	for t in tenders:
+		so_name = frappe.db.get_value(
 			"Project Tender Direct Cost Detail", {"tender": t.name}, "sales_order"
-		))
-		for t in tenders
-	]
+		)
+		so = frappe.get_doc("Sales Order", so_name)
+		so.submit()
+		so.reload()
+		sales_orders.append(so)
 	return project, sales_orders
 
 
@@ -346,3 +360,135 @@ class TestClientProgressInvoice(FrappeTestCase):
 		recompute_and_save(project.name)
 		project.reload()
 		self.assertEqual(project.total_progress_client_invoiced_amount, 0)
+
+
+def _no_write_perm_user():
+	email = "cpi_sync_noperm@example.com"
+	if not frappe.db.exists("User", email):
+		frappe.get_doc({
+			"doctype": "User", "email": email, "first_name": "No Perm", "send_welcome_email": 0,
+		}).insert(ignore_permissions=True)
+	return email
+
+
+class TestClientProgressInvoiceSyncLiveEdits(FrappeTestCase):
+	"""2026-09-27 auto-sync BRD: sync_live_edits is a plain whitelisted
+	Python function, so - unlike the live calculator, which is JS-only and
+	untestable without a browser (no JS test infra exists in this app) -
+	its permission/gating/clamping logic is directly unit-testable here."""
+
+	def test_denies_without_write_permission(self):
+		so = won_sales_order("SyncPerm")
+		cpi = make_cpi(so, cumulative=4)
+		cpi.insert(ignore_permissions=True)
+
+		frappe.set_user(_no_write_perm_user())
+		try:
+			with self.assertRaises(frappe.PermissionError):
+				sync_live_edits(cpi.as_dict())
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_noop_when_submitted(self):
+		so = won_sales_order("SyncSubmitted", qty=10)
+		cpi = make_cpi(so, cumulative=4)
+		cpi.insert(ignore_permissions=True)
+		cpi.mark_as_measured()
+		cpi.submit()
+
+		payload = cpi.as_dict()
+		payload["items"][0]["cumulative_qty_complete"] = 9
+
+		self.assertEqual(sync_live_edits(payload), {})
+		self.assertEqual(
+			frappe.db.get_value("Client Progress Invoice Item", cpi.items[0].name, "cumulative_qty_complete"), 4,
+		)
+
+	def test_rejects_foreign_row(self):
+		so_a = won_sales_order("SyncOwnA")
+		so_b = won_sales_order("SyncOwnB")
+		cpi_a = make_cpi(so_a, cumulative=2)
+		cpi_a.insert(ignore_permissions=True)
+		cpi_b = make_cpi(so_b, cumulative=3)
+		cpi_b.insert(ignore_permissions=True)
+
+		payload = cpi_a.as_dict()
+		foreign_row = cpi_b.as_dict()["items"][0]
+		foreign_row["cumulative_qty_complete"] = 99
+		payload["items"] = [foreign_row]
+
+		self.assertEqual(sync_live_edits(payload), {})
+		self.assertEqual(
+			frappe.db.get_value("Client Progress Invoice Item", cpi_b.items[0].name, "cumulative_qty_complete"), 3,
+		)
+
+	def test_clamps_ceiling_instead_of_throwing(self):
+		so = won_sales_order("SyncClampCeil", qty=10)
+		cpi = make_cpi(so, cumulative=4)
+		cpi.insert(ignore_permissions=True)
+
+		payload = cpi.as_dict()
+		payload["items"][0]["cumulative_qty_complete"] = 999
+
+		result = sync_live_edits(payload)  # must not raise
+		self.assertTrue(result)
+		self.assertEqual(
+			frappe.db.get_value("Client Progress Invoice Item", cpi.items[0].name, "cumulative_qty_complete"), 10,
+		)
+
+	def test_clamps_regression_instead_of_throwing(self):
+		so = won_sales_order("SyncClampFloor", qty=10)
+		first = make_cpi(so, cumulative=4)
+		first.insert(ignore_permissions=True)
+		first.mark_as_measured()
+		first.submit()
+
+		second = make_cpi(so, cumulative=4)  # seeded at prior_max_qty=4
+		second.insert(ignore_permissions=True)
+
+		payload = second.as_dict()
+		payload["items"][0]["cumulative_qty_complete"] = 1  # below prior_max_qty
+
+		result = sync_live_edits(payload)  # must not raise
+		self.assertTrue(result)
+		self.assertEqual(
+			frappe.db.get_value("Client Progress Invoice Item", second.items[0].name, "cumulative_qty_complete"), 4,
+		)
+
+	def test_skips_row_without_source_link(self):
+		so = won_sales_order("SyncNoLink")
+		cpi = make_cpi(so, cumulative=4)
+		cpi.insert(ignore_permissions=True)
+
+		payload = cpi.as_dict()
+		payload["items"][0]["sales_order_item"] = None
+		payload["items"][0]["cumulative_qty_complete"] = 7
+
+		self.assertEqual(sync_live_edits(payload), {})
+		self.assertEqual(
+			frappe.db.get_value("Client Progress Invoice Item", cpi.items[0].name, "cumulative_qty_complete"), 4,
+		)
+
+	def test_persists_without_triggering_project_rollup_hook(self):
+		"""The load-bearing constraint the 2026-09-27 gap analysis surfaced:
+		Client Progress Invoice's on_update hook
+		(project_cost_billing.on_client_progress_invoice_update) recomputes
+		and saves an entire Project on every real doc.save() - sync_live_
+		edits must persist via frappe.db.set_value only, never doc.save(),
+		so it does NOT fire on every ~2s tick."""
+		project, sales_orders = won_project_with_sales_orders("SyncHook", [("Electrical", 100)])
+		cpi = make_project_cpi(project, "Electrical", sales_orders, {sales_orders[0].name: 2})
+		cpi.insert(ignore_permissions=True)
+
+		project_modified_before = frappe.db.get_value("Project", project.name, "modified")
+
+		payload = cpi.as_dict()
+		payload["items"][0]["cumulative_qty_complete"] = 5
+
+		result = sync_live_edits(payload)
+
+		self.assertIn("total_this_period", result)
+		self.assertEqual(
+			frappe.db.get_value("Client Progress Invoice Item", cpi.items[0].name, "cumulative_qty_complete"), 5,
+		)
+		self.assertEqual(frappe.db.get_value("Project", project.name, "modified"), project_modified_before)

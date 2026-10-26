@@ -103,6 +103,27 @@ def get_contract_retention_rate(contract_name):
 	return flt(rate)
 
 
+def contract_item_title(contract_item, description=None):
+	"""What a Contractor Invoice row shows for its contract line (link titles
+	fall back to the raw row id when this is blank). The line's own
+	description wins; a line created through a path that skipped validate
+	(db_insert) can have none, so fall back to the Tender BOQ line's
+	description/name or the Work Item Template's name (2026-10-18 BRD FR-10).
+	"""
+	if description:
+		return description
+	line = frappe.db.get_value(
+		"Contractor Contract Item", contract_item, ["work_item", "work_item_template"], as_dict=True
+	)
+	if not line:
+		return description
+	if line.work_item:
+		boq = frappe.db.get_value("Tender BOQ Item", line.work_item, ["description", "item_name"], as_dict=True)
+		if boq:
+			return boq.description or boq.item_name
+	return line.work_item_template or description
+
+
 def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_parent=None, retention_rate=None):
 	"""Shared validate() logic for Contractor Invoice and Client Progress
 	Invoice: both are a cumulative-percent-complete claim against the rows
@@ -182,7 +203,7 @@ def compute_progress_invoice_items(doc, own_doctype, source_doctype, source_pare
 		row.retention_amount = row.this_period_amount * retention_rate / 100.0
 		row.net_amount = row.this_period_amount - row.retention_amount
 		if own_doctype == "Contractor Invoice":
-			row.description = ti.get("description")
+			row.description = contract_item_title(source_name, ti.get("description"))
 
 		total_this_period += row.this_period_amount
 		total_retention += row.retention_amount
@@ -264,6 +285,34 @@ def get_sales_order_item_billing_context(sales_order_item, exclude_invoice=None)
 
 
 @frappe.whitelist()
+def get_sales_order_items_billing_context(sales_order_items, exclude_invoice=None):
+	"""Batch form of get_sales_order_item_billing_context, keyed by Sales
+	Order Item name - sales_invoice.js calls this once per action instead of
+	once per row (one call per row froze the form on a 157-row invoice)."""
+	sales_order_items = list(set(frappe.parse_json(sales_order_items) or []))
+	if not sales_order_items:
+		return {}
+
+	context = {
+		d.name: {"ordered_qty": flt(d.qty), "invoiced_qty_excluding_this_draft": 0.0}
+		for d in frappe.get_all("Sales Order Item", filters={"name": ["in", sales_order_items]}, fields=["name", "qty"])
+	}
+	for so_detail, invoiced_qty in frappe.db.sql(
+		"""
+		select sii.so_detail, coalesce(sum(sii.qty), 0)
+		from `tabSales Invoice Item` sii
+		inner join `tabSales Invoice` si on si.name = sii.parent
+		where sii.so_detail in %s and si.docstatus = 1 and si.name != %s
+		group by sii.so_detail
+		""",
+		(tuple(sales_order_items), exclude_invoice or ""),
+	):
+		if so_detail in context:
+			context[so_detail]["invoiced_qty_excluding_this_draft"] = flt(invoiced_qty)
+	return context
+
+
+@frappe.whitelist()
 def get_invoiced_qty_for_work_item(work_item):
 	"""FR-07/FR-27: how much of one work item has already been invoiced,
 	across every submitted (docstatus=1) Contractor Invoice - shown next to
@@ -283,24 +332,42 @@ def get_invoiced_qty_for_work_item(work_item):
 
 
 @frappe.whitelist()
-def get_item_progress_context(contract_item, own_doctype, doc_name=None):
+def get_item_progress_context(contract_item, own_doctype, doc_name=None, source_doctype="Contractor Contract Item"):
 	"""Live client-side counterpart to compute_progress_invoice_items's
-	per-row lookups: everything contractor_invoice.js needs to know before
-	it can derive cumulative_qty_complete/percent_complete/this_period_qty
-	from one another and recompute amounts, without waiting for a save."""
+	per-row lookups: everything the live 3-way calculator (Contractor
+	Invoice's contractor_invoice.js, Client Progress Invoice's
+	client_progress_invoice.js) needs to know before it can derive
+	cumulative_qty_complete/percent_complete/this_period_qty from one
+	another and recompute amounts, without waiting for a save.
+
+	source_doctype defaults to "Contractor Contract Item" so Contractor
+	Invoice's existing call site (which never passes it) is unaffected.
+	Client Progress Invoice passes "Sales Order Item" or "Tender Item"
+	depending on which link field a row carries - rate_field/link_field
+	resolution mirrors compute_progress_invoice_items exactly, so save-time
+	and live-preview can never drift on what a row's ceiling or
+	prior-progress means.
+
+	"parent" is returned for callers (sync_live_edits) that need to reject
+	a row whose link field was forged/gone-stale to point at a different
+	document's line before handing it to compute_progress_invoice_items -
+	Contractor Invoice's JS callback only destructures the keys it already
+	knew about and ignores this one."""
+	rate_field = SOURCE_RATE_FIELD.get(source_doctype, "rate")
 	ci = frappe.db.get_value(
-		"Contractor Contract Item", contract_item, ["qty", "unit_price", "description"], as_dict=True
+		source_doctype, contract_item, ["qty", rate_field, "description", "parent"], as_dict=True
 	)
 	if not ci:
-		frappe.throw(_("Invalid Contractor Contract Item reference: {0}").format(contract_item))
+		frappe.throw(_("Invalid {0} reference: {1}").format(_(source_doctype), contract_item))
 
 	prior_max_qty, prior_invoiced_amount = _get_prior_item_progress(
-		own_doctype, SOURCE_LINK_FIELD["Contractor Contract Item"], contract_item, doc_name
+		own_doctype, SOURCE_LINK_FIELD[source_doctype], contract_item, doc_name
 	)
 	return {
 		"qty_allocated": ci.qty or 0,
-		"rate": ci.unit_price or 0,
-		"description": ci.description,
+		"rate": ci.get(rate_field) or 0,
+		"description": contract_item_title(contract_item, ci.description),
+		"parent": ci.parent,
 		"prior_max_qty": prior_max_qty,
 		"prior_invoiced_amount": prior_invoiced_amount,
 	}
@@ -318,7 +385,12 @@ def get_condition_seed_rows(contractor_contract):
 	Payment Condition set when one exists for it; otherwise it falls back to
 	the contract-wide (work_item blank) rows. Without this, a contract that
 	combines a contract-wide default with a per-work-item override would
-	double-assign both sets to the overridden line."""
+	double-assign both sets to the overridden line.
+
+	Follows Tender BRD FR-16: a template line's override set is keyed on
+	work_item_template the same way, and "contract-wide" means *both* keys
+	blank - otherwise a template-scoped condition (work_item blank) would be
+	seeded onto every line of the contract."""
 	if not contractor_contract:
 		return []
 
@@ -330,11 +402,17 @@ def get_condition_seed_rows(contractor_contract):
 			on ccpc.parent = cci.parent
 			and (
 				ccpc.work_item = cci.work_item
+				or ccpc.work_item_template = cci.work_item_template
 				or (
 					ifnull(ccpc.work_item, '') = ''
+					and ifnull(ccpc.work_item_template, '') = ''
 					and not exists (
 						select 1 from `tabContractor Contract Payment Condition` override
-						where override.parent = cci.parent and override.work_item = cci.work_item
+						where override.parent = cci.parent
+						  and (
+							override.work_item = cci.work_item
+							or override.work_item_template = cci.work_item_template
+						  )
 					)
 				)
 			)
@@ -369,7 +447,7 @@ def get_condition_progress_context(contract_item, payment_condition, doc_name=No
 	return {
 		"qty_allocated": flt(ci.qty),
 		"rate": ci.unit_price or 0,
-		"description": ci.description,
+		"description": contract_item_title(contract_item, ci.description),
 		"condition_percent": flt(condition.percent),
 		"prior_max_qty": prior_max_qty,
 		"prior_invoiced_amount": prior_invoiced_amount,
@@ -404,7 +482,7 @@ def compute_condition_progress_invoice(doc):
 	for row in doc.condition_progress:
 		ci = frappe.db.get_value(
 			"Contractor Contract Item", row.contract_item,
-			["qty", "unit_price", "parent", "work_item", "description"], as_dict=True
+			["qty", "unit_price", "parent", "work_item", "work_item_template", "description"], as_dict=True
 		)
 		if not ci:
 			frappe.throw(_("Row #{0}: invalid Contractor Contract Item reference.").format(row.idx))
@@ -417,7 +495,7 @@ def compute_condition_progress_invoice(doc):
 
 		condition = frappe.db.get_value(
 			"Contractor Contract Payment Condition", row.payment_condition,
-			["condition", "percent", "parent", "work_item"], as_dict=True
+			["condition", "percent", "parent", "work_item", "work_item_template"], as_dict=True
 		)
 		if not condition:
 			frappe.throw(_("Row #{0}: invalid Payment Condition reference.").format(row.idx))
@@ -425,6 +503,12 @@ def compute_condition_progress_invoice(doc):
 			frappe.throw(
 				_("Row #{0}: this Payment Condition belongs to {1}, not {2}.").format(
 					row.idx, frappe.bold(condition.parent), frappe.bold(doc.contractor_contract)
+				)
+			)
+		if condition.work_item_template and condition.work_item_template != ci.work_item_template:
+			frappe.throw(
+				_("Row #{0}: this Payment Condition belongs to work item template {1}, not this line.").format(
+					row.idx, frappe.bold(condition.work_item_template)
 				)
 			)
 		if condition.work_item and condition.work_item != ci.work_item:
@@ -439,7 +523,7 @@ def compute_condition_progress_invoice(doc):
 			)
 
 		row.condition_label = condition.condition
-		row.description = ci.description
+		row.description = contract_item_title(row.contract_item, ci.description)
 		row.condition_percent = flt(condition.percent)
 		row.rate = ci.unit_price or 0
 		# FR-01/02: every condition on a line shares the same, full ceiling
@@ -484,7 +568,7 @@ def compute_condition_progress_invoice(doc):
 			"qty_allocated": 0.0, "cumulative_qty_complete": 0.0, "this_period_qty": 0.0,
 			"previously_invoiced_amount": 0.0, "this_period_amount": 0.0,
 			"retention_amount": 0.0, "net_amount": 0.0, "rate": row.rate,
-			"description": ci.description,
+			"description": contract_item_title(row.contract_item, ci.description),
 		})
 		acc["qty_allocated"] = flt(ci.qty)
 		# FR-07: value-weighted equivalent qty - each condition's own

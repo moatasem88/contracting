@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "naming_series",
+  "project",
   "subcontractor_contract",
   "project_tenders",
   "type_subcontractor",
@@ -16,9 +17,13 @@
   "amended_from",
   "addendum_items_section",
   "addendum_items",
+  "payment_conditions_section",
+  "addendum_payment_conditions",
   "totals_section",
   "grand_total_delta",
   "requires_ceo_approval",
+  "checklist_attachment",
+  "effective_date",
   "workflow_state"
  ],
  "fields": [
@@ -33,6 +38,16 @@
    "print_hide": 1,
    "reqd": 1,
    "set_only_once": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "fetch_from": "subcontractor_contract.project",
+   "description": "Pick the project first to narrow the contract list. Always follows the selected contract."
   },
   {
    "bold": 1,
@@ -93,6 +108,18 @@
    "options": "Contractor Contract Addendum Item"
   },
   {
+   "fieldname": "payment_conditions_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Conditions"
+  },
+  {
+   "fieldname": "addendum_payment_conditions",
+   "fieldtype": "Table",
+   "label": "Payment Conditions",
+   "options": "Contractor Contract Addendum Payment Condition",
+   "description": "Conditions for work items this addendum adds, or replacements for existing ones. Each work item's conditions must total 100%."
+  },
+  {
    "fieldname": "totals_section",
    "fieldtype": "Section Break",
    "label": "Totals"
@@ -114,6 +141,23 @@
    "label": "Requires CEO Approval",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "checklist_attachment",
+   "fieldtype": "Attach",
+   "label": "Cost Control Checklist",
+   "no_copy": 1,
+   "depends_on": "eval:doc.workflow_state==\"Pending Cost Control Engineer Review\" || doc.checklist_attachment",
+   "read_only_depends_on": "eval:doc.workflow_state!=\"Pending Cost Control Engineer Review\"",
+   "description": "Required to pass the Cost Control Engineer review step."
+  },
+  {
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "label": "Effective Date",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Stamped automatically when the document reaches final approval. Cannot be edited."
   },
   {
    "fieldname": "workflow_state",
@@ -188,6 +232,45 @@
    "share": 1,
    "submit": 1,
    "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1,
+   "submit": 0,
+   "write": 1,
+   "role": "Cost Control Engineer"
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1,
+   "role": "Planning and Cost Control Director"
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1,
+   "submit": 0,
+   "write": 1,
+   "role": "Projects Director"
   }
  ],
  "show_name_in_global_search": 1,

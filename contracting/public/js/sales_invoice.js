@@ -14,8 +14,7 @@ frappe.ui.form.on("Sales Invoice", {
         });
 
         toggle_percentage_billing_fields(frm);
-        refresh_previous_invoiced_percentage(frm);
-        sync_row_percentages(frm);
+        refresh_billing_percentages(frm);
     },
 
     current_invoice_percentage: function(frm) {
@@ -27,46 +26,42 @@ frappe.ui.form.on("Sales Invoice", {
         if (single_sales_order(frm) === null) return;
 
         const percent = frm.doc.current_invoice_percentage || 0;
-        (frm.doc.items || []).forEach(row => {
-            if (!row.so_detail) return;
-            frappe.model.set_value(row.doctype, row.name, "current_invoice_percentage", percent);
-            apply_row_percentage(frm, row.doctype, row.name);
-        });
+        const rows = (frm.doc.items || []).filter(row => row.so_detail);
+        // Written straight onto the rows rather than via set_value - each
+        // set_value fires the row % and qty triggers (ERPNext's qty one
+        // re-fetches pricing rules and recalculates the whole table), which
+        // froze the form on a 157-row invoice.
+        rows.forEach(row => { row.current_invoice_percentage = percent; });
+        apply_row_percentages(frm, rows);
     },
 
     items_add: function(frm) {
         toggle_percentage_billing_fields(frm);
-        refresh_previous_invoiced_percentage(frm);
-        sync_row_percentages(frm);
+        refresh_billing_percentages(frm);
     },
 
     items_remove: function(frm) {
         toggle_percentage_billing_fields(frm);
-        refresh_previous_invoiced_percentage(frm);
+        refresh_billing_percentages(frm, {rows: false});
     }
 });
 
 frappe.ui.form.on("Sales Invoice Item", {
     so_detail: function(frm) {
         toggle_percentage_billing_fields(frm);
-        refresh_previous_invoiced_percentage(frm);
+        refresh_billing_percentages(frm, {rows: false});
     },
 
     current_invoice_percentage: function(frm, cdt, cdn) {
         // FR-21: independent of the header/other rows - editing one row's
         // own percentage only recomputes that row's own qty.
-        apply_row_percentage(frm, cdt, cdn);
+        apply_row_percentages(frm, [locals[cdt][cdn]]);
     },
 
     qty: function(frm, cdt, cdn) {
-        const row = locals[cdt][cdn];
-        // Set by apply_row_percentage() itself - avoid recomputing the
-        // percentage right back from the qty it just derived (that's
-        // already consistent by construction).
-        if (row.__setting_qty_from_percentage) return;
         // FR-23: a direct qty edit recomputes that row's own percentage for
         // display only, without touching qty again.
-        refresh_row_percentage(frm, cdt, cdn);
+        refresh_row_percentages(frm, [locals[cdt][cdn]]);
     }
 });
 
@@ -84,68 +79,77 @@ function toggle_percentage_billing_fields(frm) {
     frm.toggle_display("previous_invoiced_percentage", show);
 }
 
-function refresh_row_percentage(frm, cdt, cdn) {
-    const row = locals[cdt][cdn];
-    if (!row.so_detail) return;
-    frappe.call({
-        method: 'contracting.contracting.utils.progress_invoicing.get_sales_order_item_billing_context',
-        args: {sales_order_item: row.so_detail, exclude_invoice: frm.doc.name},
-        callback(r) {
-            if (!r.message) return;
-            const available = r.message.ordered_qty - r.message.invoiced_qty_excluding_this_draft;
-            const percent = available ? (row.qty / available * 100) : 0;
-            frappe.model.set_value(cdt, cdn, "current_invoice_percentage", percent);
-        }
+function get_billing_context(frm, rows) {
+    // One call for every row, keyed by so_detail.
+    return frappe.xcall('contracting.contracting.utils.progress_invoicing.get_sales_order_items_billing_context', {
+        sales_order_items: rows.map(row => row.so_detail),
+        exclude_invoice: frm.doc.name
+    }).then(context => context || {});
+}
+
+function available_qty(ctx) {
+    return ctx ? ctx.ordered_qty - ctx.invoiced_qty_excluding_this_draft : 0;
+}
+
+function set_row_percentages(rows, context) {
+    rows.forEach(row => {
+        const available = available_qty(context[row.so_detail]);
+        row.current_invoice_percentage = available ? (row.qty / available * 100) : 0;
     });
 }
 
-function sync_row_percentages(frm) {
+function refresh_row_percentages(frm, rows) {
+    rows = rows.filter(row => row.so_detail);
+    if (!rows.length) return;
+    get_billing_context(frm, rows).then(context => {
+        set_row_percentages(rows, context);
+        frm.refresh_field("items");
+    });
+}
+
+function apply_row_percentages(frm, rows) {
+    // qty/stock_qty set directly instead of through ERPNext's qty trigger:
+    // progress billing keeps the Sales Order rate, so there's no pricing
+    // rule to re-apply, and totals are recalculated once for all rows.
+    rows = rows.filter(row => row.so_detail);
+    if (!rows.length) return;
+    get_billing_context(frm, rows).then(context => {
+        rows.forEach(row => {
+            if (!context[row.so_detail]) return;
+            const qty = (row.current_invoice_percentage || 0) / 100 * available_qty(context[row.so_detail]);
+            row.qty = flt(qty, precision("qty", row));
+            row.stock_qty = flt(row.qty * row.conversion_factor, precision("stock_qty", row));
+            row.total_weight = flt(row.stock_qty * row.weight_per_unit);
+        });
+        // Also refreshes every field, items grid included.
+        frm.cscript.calculate_taxes_and_totals();
+        frm.dirty();
+    });
+}
+
+function refresh_billing_percentages(frm, {rows = true} = {}) {
     // Rows commonly arrive via "Get Items From > Sales Order" (a server-side
     // mapper, not per-field set_value calls), so the qty/so_detail triggers
     // above never fire for them and current_invoice_percentage is left blank
-    // even though qty is already populated. Called from refresh/items_add to
-    // backfill it for every row that already carries a qty and a so_detail.
-    (frm.doc.items || []).forEach(row => {
-        if (row.so_detail && row.qty) {
-            refresh_row_percentage(frm, row.doctype, row.name);
-        }
-    });
-}
-
-function apply_row_percentage(frm, cdt, cdn) {
-    const row = locals[cdt][cdn];
-    if (!row.so_detail) return;
-    frappe.call({
-        method: 'contracting.contracting.utils.progress_invoicing.get_sales_order_item_billing_context',
-        args: {sales_order_item: row.so_detail, exclude_invoice: frm.doc.name},
-        callback(r) {
-            if (!r.message) return;
-            const available = r.message.ordered_qty - r.message.invoiced_qty_excluding_this_draft;
-            const qty = (row.current_invoice_percentage || 0) / 100 * available;
-            row.__setting_qty_from_percentage = true;
-            frappe.model.set_value(cdt, cdn, "qty", qty).then(() => {
-                row.__setting_qty_from_percentage = false;
-            });
-        }
-    });
-}
-
-function refresh_previous_invoiced_percentage(frm) {
-    // FR-19: scoped to the Sales Order Items actually represented on this
-    // invoice's own rows (confirmed assumption), not every item on the
-    // whole Sales Order.
+    // even though qty is already populated - backfilled here (rows) along
+    // with FR-19's header previous_invoiced_percentage, scoped to the Sales
+    // Order Items actually represented on this invoice's own rows
+    // (confirmed assumption), not every item on the whole Sales Order.
     const so_detail_rows = (frm.doc.items || []).filter(r => r.so_detail);
     if (single_sales_order(frm) === null || !so_detail_rows.length) return;
 
-    Promise.all(so_detail_rows.map(row => new Promise(resolve => {
-        frappe.call({
-            method: 'contracting.contracting.utils.progress_invoicing.get_sales_order_item_billing_context',
-            args: {sales_order_item: row.so_detail, exclude_invoice: frm.doc.name},
-            callback(r) { resolve(r.message || {ordered_qty: 0, invoiced_qty_excluding_this_draft: 0}); }
+    get_billing_context(frm, so_detail_rows).then(context => {
+        if (rows) {
+            set_row_percentages(so_detail_rows.filter(row => row.qty), context);
+            frm.refresh_field("items");
+        }
+        let total_ordered = 0, total_invoiced = 0;
+        so_detail_rows.forEach(row => {
+            const ctx = context[row.so_detail];
+            if (!ctx) return;
+            total_ordered += ctx.ordered_qty;
+            total_invoiced += ctx.invoiced_qty_excluding_this_draft;
         });
-    }))).then(results => {
-        const total_ordered = results.reduce((sum, r) => sum + r.ordered_qty, 0);
-        const total_invoiced = results.reduce((sum, r) => sum + r.invoiced_qty_excluding_this_draft, 0);
         frm.set_value("previous_invoiced_percentage", total_ordered ? (total_invoiced / total_ordered * 100) : 0);
     });
 }
