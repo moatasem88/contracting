@@ -259,8 +259,14 @@
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
- "links": [],
- "modified": "2026-08-14 18:00:00.000000",
+ "links": [
+  {
+   "group": "Contracting",
+   "link_doctype": "Purchase Invoice",
+   "link_fieldname": "custom_contractor_invoice"
+  }
+ ],
+ "modified": "2026-10-26 23:30:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Contractor Invoice",

@@ -351,12 +351,12 @@
    "read_only": 1
   },
   {
+   "description": "Stamped automatically when the document reaches final approval. Cannot be edited.",
    "fieldname": "effective_date",
    "fieldtype": "Date",
    "label": "Effective Date",
-   "read_only": 1,
    "no_copy": 1,
-   "description": "Stamped automatically when the document reaches final approval. Cannot be edited."
+   "read_only": 1
   },
   {
    "depends_on": "eval:doc.type_subcontractor==\"Supplying and installing\"",
@@ -413,9 +413,20 @@
  ],
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
- "links": [],
+ "links": [
+  {
+   "group": "Contracting",
+   "link_doctype": "Contractor Invoice",
+   "link_fieldname": "contractor_contract"
+  },
+  {
+   "group": "Contracting",
+   "link_doctype": "Purchase Invoice",
+   "link_fieldname": "subcontractor_contract"
+  }
+ ],
  "make_attachments_public": 1,
- "modified": "2026-10-18 12:00:00.000000",
+ "modified": "2026-10-26 23:30:00.000000",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Subcontractor Contract",
