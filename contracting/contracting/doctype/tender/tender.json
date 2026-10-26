@@ -295,10 +295,10 @@
    "options": "Tender Equipment Item"
   },
   {
+   "collapsible": 1,
    "fieldname": "legacy_pre_migration_section",
    "fieldtype": "Section Break",
-   "label": "Legacy Data (preserved from previous version)",
-   "collapsible": 1
+   "label": "Legacy Data (preserved from previous version)"
   },
   {
    "fieldname": "details_section",
@@ -332,8 +332,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Customer",
-   "options": "Customer",
-   "reqd": 1
+   "options": "Customer"
   },
   {
    "fieldname": "column_break_tea6t",
@@ -348,30 +347,26 @@
   {
    "fieldname": "description",
    "fieldtype": "Data",
-   "label": "Description",
-   "reqd": 1
+   "label": "Description"
   },
   {
    "fieldname": "tender_number",
    "fieldtype": "Data",
-   "label": "Tender Number",
-   "reqd": 1
+   "label": "Tender Number"
   },
   {
    "allow_bulk_edit": 1,
    "fieldname": "contracting_items",
    "fieldtype": "Table",
    "label": "Contracting Items",
-   "options": "Contracting Items Child",
-   "reqd": 1
+   "options": "Contracting Items Child"
   },
   {
    "fieldname": "project",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Project",
-   "options": "Project",
-   "reqd": 1
+   "options": "Project"
   },
   {
    "fieldname": "section_break_avzz5",
@@ -412,7 +407,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-11 17:19:22.799399",
+ "modified": "2026-10-18 10:58:18.160707",
  "modified_by": "Administrator",
  "module": "Contracting",
  "name": "Tender",
