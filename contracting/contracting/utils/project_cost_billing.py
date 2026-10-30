@@ -177,9 +177,16 @@ def _compute_header_fields(project_doc, sales_orders):
 	project_doc.flags._subcontracting_pi_names = subcontracting_pi_names
 	project_doc.total_subcontracting_invoices = sum(flt(r.grand_total) for r in subcontracting_pis)
 
+	# A Bank Clearance entry moves an already-paid cheque from the Notes
+	# account to the bank; counting it too would double the payment.
 	project_doc.total_paid_amount = _sum(
 		"Payment Entry",
-		{"project": project_doc.name, "docstatus": 1, "payment_type": "Pay"},
+		{
+			"project": project_doc.name,
+			"docstatus": 1,
+			"payment_type": "Pay",
+			"mode_of_payment": ["!=", "Bank Clearance"],
+		},
 		"paid_amount",
 	)
 
