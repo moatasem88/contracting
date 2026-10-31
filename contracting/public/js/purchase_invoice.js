@@ -14,6 +14,16 @@ frappe.ui.form.on("Purchase Invoice", {
             }
         });
 
+    },
+
+    cost_center: function(frm) {
+        contracting.project_position.default_project(frm);
+    }
+})
+
+frappe.ui.form.on("Purchase Invoice Item", {
+    cost_center: function(frm, cdt, cdn) {
+        contracting.project_position.default_project(frm, cdt, cdn);
     }
 })
 

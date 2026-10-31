@@ -40,6 +40,10 @@ frappe.ui.form.on("Sales Invoice", {
         refresh_billing_percentages(frm);
     },
 
+    cost_center: function(frm) {
+        contracting.project_position.default_project(frm);
+    },
+
     items_remove: function(frm) {
         toggle_percentage_billing_fields(frm);
         refresh_billing_percentages(frm, {rows: false});
@@ -47,6 +51,10 @@ frappe.ui.form.on("Sales Invoice", {
 });
 
 frappe.ui.form.on("Sales Invoice Item", {
+    cost_center: function(frm, cdt, cdn) {
+        contracting.project_position.default_project(frm, cdt, cdn);
+    },
+
     so_detail: function(frm) {
         toggle_percentage_billing_fields(frm);
         refresh_billing_percentages(frm, {rows: false});

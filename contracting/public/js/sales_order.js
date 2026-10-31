@@ -10,4 +10,8 @@ frappe.ui.form.on("Sales Order", {
 			);
 		}
 	},
+
+	cost_center(frm) {
+		contracting.project_position.default_project(frm);
+	},
 });

@@ -17,6 +17,7 @@ app_license = "MIT"
 app_include_js = [
     "/assets/contracting/js/tax_charge_type.js",
     "/assets/contracting/js/expand_view.js",
+    "/assets/contracting/js/project_default.js",
 ]
 
 # include js, css files in header of web template
@@ -45,7 +46,8 @@ doctype_js = {
               "Tender" : "public/js/tender_expand_view.js",
               "Project" : "public/js/project.js",
               "Sales Order" : "public/js/sales_order.js",
-              "Item" : "public/js/item.js"
+              "Item" : "public/js/item.js",
+              "Payment Entry" : "public/js/payment_entry.js"
 
 
 
@@ -118,6 +120,19 @@ from contracting.patches.create_contracts_engineer_role import CONTRACTS_ENGINEE
 # existing only in site1.local's DB.
 _PROJECTS_DIRECTOR_ROLE = "Projects Director"
 
+# Mandatory Cost Center was set through Customize Form long before this app
+# exported anything, so it lived only in site1.local's DB. Listed by name
+# (Project Position BRD FR-16) - other Property Setters on these doctypes
+# belong to other work and stay out.
+_COST_CENTER_REQD_SETTERS = [
+    "Purchase Invoice-cost_center-reqd",
+    "Sales Invoice-cost_center-reqd",
+    "Payment Entry-cost_center-reqd",
+    "Purchase Order-cost_center-reqd",
+    "Journal Entry Account-cost_center-reqd",
+    "Expense Claim-cost_center-reqd",
+]
+
 fixtures = [
     {"dt": "Custom Field", "filters": [["name", "in", _custom_field_names()]]},
     {
@@ -158,6 +173,7 @@ fixtures = [
             ["custom", "=", 1],
         ],
     },
+    {"dt": "Property Setter", "filters": [["name", "in", _COST_CENTER_REQD_SETTERS]]},
 ]
 # Uninstallation
 # ------------
@@ -244,11 +260,14 @@ doc_events = {
       "Quotation":{
 		"validate":"contracting.contracting.controllers.quotation.calculate_totals"
 	},
+    # Project Position BRD FR-14: Project mandatory where the Cost Center has one.
     "Sales Order":{
+		"before_submit":"contracting.contracting.utils.project_position.validate_project_mandatory",
 		"on_submit":"contracting.contracting.utils.project_cost_billing.on_sales_transaction",
 		"on_cancel":"contracting.contracting.utils.project_cost_billing.on_sales_transaction"
 	},
     "Sales Invoice":{
+		"before_submit":"contracting.contracting.utils.project_position.validate_project_mandatory",
 		"on_submit":[
 			"contracting.contracting.controllers.sales_invoice.update_remaining_qty_on_submit",
 			"contracting.contracting.controllers.retention.create_retention_je_on_sales_invoice_submit",
@@ -264,7 +283,10 @@ doc_events = {
 	},
     "Purchase Invoice":{
 		"validate":"contracting.contracting.utils.deduction.process_purchase_document",
-		"before_submit":"contracting.contracting.utils.deduction.validate_deduction_gl_account",
+		"before_submit":[
+			"contracting.contracting.utils.deduction.validate_deduction_gl_account",
+			"contracting.contracting.utils.project_position.validate_project_mandatory",
+		],
 		"on_submit":[
 			"contracting.contracting.controllers.sales_invoice.update_remaining_qty_on_submit",
 			"contracting.contracting.controllers.retention.create_retention_je_on_purchase_invoice_submit",
@@ -279,6 +301,7 @@ doc_events = {
 
 	},
     "Payment Entry":{
+		"before_submit":"contracting.contracting.utils.project_position.validate_project_mandatory",
 		"on_submit":[
 			"contracting.contracting.utils.project_cost_billing.on_payment_entry_transaction",
 			"contracting.contracting.utils.contract_item_progress.on_payment_entry_transaction",
